@@ -143,14 +143,23 @@ function initImageUpload() {
     try {
       const res  = await fetch('/api/analyze-image', { method: 'POST', body: formData });
       const data = await res.json();
-      if (data.error) { resultDiv.innerHTML = `<p style="color:#f5a623;text-align:center">${data.error}</p>`; return; }
+      if (data.error) {
+        resultDiv.innerHTML = `<div style="text-align:center;padding:2rem">
+          <p style="color:#f5a623;font-size:1rem;margin-bottom:0.5rem">⚠️ ${data.error}</p>
+          <p style="color:var(--text-muted);font-size:0.85rem">Please try a different image (JPG/PNG, clear face photo)</p>
+        </div>`;
+        return;
+      }
       state.imgResult = data;
       renderResult('img-result', data, 'Image Analysis Method', data.features);
       document.getElementById('step-i').querySelector('.step-status').textContent = '✓ Done';
       document.getElementById('step-i').querySelector('.step-status').classList.add('done');
       updateComparePlaceholder();
     } catch (err) {
-      resultDiv.innerHTML = `<p style="color:#f5a623;text-align:center">Analysis failed. Please try again.</p>`;
+      resultDiv.innerHTML = `<div style="text-align:center;padding:2rem">
+        <p style="color:#f5a623;font-size:1rem;margin-bottom:0.5rem">⚠️ Connection error</p>
+        <p style="color:var(--text-muted);font-size:0.85rem">Error: ${err.message}. Please try again.</p>
+      </div>`;
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Analyze Image →';
@@ -178,7 +187,7 @@ function renderResult(containerId, data, method, features = null) {
     `).join('');
 
   const charsHtml = info.characteristics.map(c => `<li>${c}</li>`).join('');
-  const routineHtml = info.routine.map(r => `<li>${r}</li>`).join('');
+  const routineHtml = (info.morning_routine || []).map(s => `<li><strong>${s.name}</strong> — ${s.desc}</li>`).join('');
 
   let featuresHtml = '';
   if (features) {
@@ -258,7 +267,7 @@ function renderCompare() {
   const final = q.skin_type;
   const info  = q.info;
   const charsHtml   = info.characteristics.map(c => `<li>${c}</li>`).join('');
-  const routineHtml = info.routine.map(r => `<li>${r}</li>`).join('');
+  const routineHtml = (info.morning_routine || []).map(s => `<li><strong>${s.name}</strong> — ${s.desc}</li>`).join('');
 
   container.innerHTML = `
     ${agreeBanner}
