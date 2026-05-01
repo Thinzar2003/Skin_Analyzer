@@ -81,7 +81,7 @@ SKIN_INFO = {
                 'brands': [
                     {'name':'Laneige Water Sleeping Mask','why':'Overnight hydration powerhouse'},
                     {'name':'Dr. Jart+ Ceramidin Cream','why':'5-cera complex repairs and strengthens barrier'},
-                    {'name':'Kiehl's Ultra Facial Overnight Hydrating Masque','why':'Deep overnight moisture replenishment'},
+                    {'name':'Kiehls Ultra Facial Overnight Hydrating Masque','why':'Deep overnight moisture replenishment'},
                 ]
             }
         },
@@ -113,7 +113,7 @@ SKIN_INFO = {
                 'key_ingredients': ['Glycerin','Niacinamide','Green Tea Extract','Aloe'],
                 'brands': [
                     {'name':'Tatcha The Rice Wash','why':'Gentle, brightening, leaves skin soft'},
-                    {'name':'Kiehl's Ultra Facial Cleanser','why':'Balanced formula for everyday use'},
+                    {'name':'Kiehls Ultra Facial Cleanser','why':'Balanced formula for everyday use'},
                     {'name':'COSRX Low pH Good Morning Gel Cleanser','why':'Maintains skin pH, gentle daily use'},
                 ]
             },
@@ -122,7 +122,7 @@ SKIN_INFO = {
                 'key_ingredients': ['Niacinamide','Vitamin C','Hyaluronic Acid','Green Tea'],
                 'brands': [
                     {'name':'Pixi Glow Tonic','why':'Gentle AHA for radiance, classic formula'},
-                    {'name':'Paula's Choice Skin Balancing Toner','why':'Oil control + hydration balance'},
+                    {'name':'Paulas Choice Skin Balancing Toner','why':'Oil control + hydration balance'},
                     {'name':'Some By Mi AHA BHA PHA 30 Days Miracle Toner','why':'Multi-acid gentle exfoliating toner'},
                 ]
             },
@@ -132,7 +132,7 @@ SKIN_INFO = {
                 'brands': [
                     {'name':'SkinCeuticals C E Ferulic','why':'Gold standard Vitamin C serum'},
                     {'name':'The Ordinary Niacinamide 10% + Zinc 1%','why':'Pore-minimizing, affordable'},
-                    {'name':'Paula's Choice C15 Super Booster','why':'Stable Vitamin C, anti-aging'},
+                    {'name':'Paulas Choice C15 Super Booster','why':'Stable Vitamin C, anti-aging'},
                 ]
             },
             'Moisturizer': {
@@ -157,7 +157,7 @@ SKIN_INFO = {
                 'advice': 'Exfoliate 1-2x per week to maintain glow.',
                 'key_ingredients': ['AHA (Glycolic/Lactic Acid)','BHA (Salicylic Acid)','Enzyme Exfoliants'],
                 'brands': [
-                    {'name':'Paula's Choice Skin Perfecting 2% BHA','why':'Best-in-class chemical exfoliant'},
+                    {'name':'Paulas Choice Skin Perfecting 2% BHA','why':'Best-in-class chemical exfoliant'},
                     {'name':'The Ordinary AHA 30% + BHA 2% Peeling Solution','why':'Powerful weekly treatment'},
                     {'name':'Glow Recipe Watermelon Glow PHA+BHA Toner','why':'Gentle brightening exfoliant'},
                 ]
@@ -199,7 +199,7 @@ SKIN_INFO = {
                 'advice': 'BHA toners penetrate pores and dissolve oil plugs. Use after cleansing.',
                 'key_ingredients': ['Salicylic Acid (BHA)','Niacinamide','Witch Hazel (alcohol-free)','Zinc'],
                 'brands': [
-                    {'name':'Paula's Choice Skin Perfecting 2% BHA Liquid','why':'Most researched BHA exfoliant available'},
+                    {'name':'Paulas Choice Skin Perfecting 2% BHA Liquid','why':'Most researched BHA exfoliant available'},
                     {'name':'COSRX BHA Blackhead Power Liquid','why':'Gentle BHA, minimizes pores effectively'},
                     {'name':'Some By Mi AHA BHA PHA 30 Days Miracle Toner','why':'Multi-acid formula for oily/acne skin'},
                 ]
@@ -209,7 +209,7 @@ SKIN_INFO = {
                 'key_ingredients': ['Niacinamide','Zinc','Salicylic Acid','Azelaic Acid','Retinol'],
                 'brands': [
                     {'name':'The Ordinary Niacinamide 10% + Zinc 1%','why':'Best value sebum-control serum'},
-                    {'name':'Paula's Choice 10% Niacinamide Booster','why':'Clinical strength pore minimizer'},
+                    {'name':'Paulas Choice 10% Niacinamide Booster','why':'Clinical strength pore minimizer'},
                     {'name':'COSRX Advanced Snail 96 Mucin','why':'Lightweight healing without clogging'},
                 ]
             },
@@ -269,7 +269,7 @@ SKIN_INFO = {
                 'key_ingredients': ['Niacinamide','Glycerin','Green Tea','Gentle Surfactants'],
                 'brands': [
                     {'name':'CeraVe Foaming Facial Cleanser','why':'Balances oil without stripping dry areas'},
-                    {'name':'Kiehl's Ultra Facial Cleanser','why':'Gentle for all zones, maintains balance'},
+                    {'name':'Kiehls Ultra Facial Cleanser','why':'Gentle for all zones, maintains balance'},
                     {'name':'Cetaphil Daily Facial Cleanser','why':'Mild enough for dry areas, effective for oily zones'},
                 ]
             },
@@ -279,7 +279,7 @@ SKIN_INFO = {
                 'brands': [
                     {'name':'Pixi Glow Tonic','why':'Gentle brightening for all zones'},
                     {'name':'Klairs Supple Preparation Toner','why':'Hydrating balance for combination skin'},
-                    {'name':'Paula's Choice Skin Balancing Toner','why':'Formulated for combination skin'},
+                    {'name':'Paulas Choice Skin Balancing Toner','why':'Formulated for combination skin'},
                 ]
             },
             'Serum': {
