@@ -1,10 +1,12 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
 import numpy as np
 import cv2
 import base64
 import os
 from PIL import Image
 import io
+import json
+import datetime
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
@@ -453,7 +455,13 @@ def api_analyze_image():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
     try:
-        img     = Image.open(file.stream).convert('RGB')
+        # Read image bytes first to avoid stream issues
+        img_bytes = file.read()
+        img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        # Resize if too large (avoid memory issues on free tier)
+        max_size = 1024
+        if img.width > max_size or img.height > max_size:
+            img.thumbnail((max_size, max_size), Image.LANCZOS)
         img_arr = np.array(img)
         skin_type, percentages, confidence, features = analyze_image_rules(img_arr)
         return jsonify({
@@ -464,7 +472,314 @@ def api_analyze_image():
             'info': SKIN_INFO[skin_type]
         })
     except Exception as e:
+        import traceback
+        print('Image analysis error:', traceback.format_exc())
+        return jsonify({'error': f'Analysis failed: {str(e)}'}), 500
+
+
+
+# ── Thai / English translations ───────────────────────────────────────
+TRANSLATIONS = {
+    'en': {
+        'title': 'Skin Type Analyzer',
+        'hero_badge': 'Senior Research Project',
+        'hero_title': 'Know Your Skin Type',
+        'hero_sub': 'Dual-method analysis combining dermatologist-validated questionnaire with AI-powered image recognition.',
+        'tab_quiz': 'Questionnaire',
+        'tab_image': 'Image Analysis',
+        'tab_compare': 'Compare Results',
+        'tab_history': 'My History',
+        'quiz_title': 'Skin Type Questionnaire',
+        'quiz_sub': 'Answer all 8 questions honestly for the most accurate result.',
+        'btn_analyze': 'Analyze My Skin Type',
+        'btn_export': 'Download PDF Report',
+        'result_method_quiz': 'Questionnaire Method',
+        'result_method_image': 'Image Analysis Method',
+        'morning_routine': 'Morning Routine',
+        'evening_routine': 'Evening Routine',
+        'products': 'Product Recommendations',
+        'ingredients': 'Ingredient Guide',
+        'look_for': 'Ingredients to Look For',
+        'avoid_label': 'Ingredients to Avoid',
+        'confidence': 'confidence',
+        'history_title': 'Your Skin History',
+        'history_sub': 'Track how your skin type changes over time.',
+        'no_history': 'No results saved yet. Complete an analysis to start tracking.',
+        'save_result': 'Save This Result',
+        'saved': 'Result saved!',
+        'upload_title': 'Drop your photo here',
+        'upload_sub': 'or click to browse',
+        'upload_hint': 'JPG, PNG · Clear lighting · Face forward · No heavy makeup',
+        'btn_analyze_img': 'Analyze Image',
+        'condition_title': 'Skin Condition Analysis',
+        'condition_normal': 'No major concerns detected',
+        'condition_acne': 'Possible acne detected',
+        'condition_redness': 'Redness / irritation detected',
+        'condition_dark': 'Dark spots detected',
+        'skin_dry': 'Dry', 'skin_normal': 'Normal', 'skin_oily': 'Oily', 'skin_combo': 'Combination',
+    },
+    'th': {
+        'title': 'วิเคราะห์ประเภทผิว',
+        'hero_badge': 'โครงงานวิจัยระดับอุดมศึกษา',
+        'hero_title': 'รู้จักประเภทผิวของคุณ',
+        'hero_sub': 'การวิเคราะห์แบบคู่ ผสมผสานแบบสอบถามที่ผ่านการตรวจสอบโดยผู้เชี่ยวชาญและการรู้จำภาพด้วย AI',
+        'tab_quiz': 'แบบสอบถาม',
+        'tab_image': 'วิเคราะห์จากภาพ',
+        'tab_compare': 'เปรียบเทียบผล',
+        'tab_history': 'ประวัติของฉัน',
+        'quiz_title': 'แบบสอบถามประเภทผิว',
+        'quiz_sub': 'ตอบคำถามทั้ง 8 ข้ออย่างซื่อสัตย์เพื่อผลลัพธ์ที่แม่นยำที่สุด',
+        'btn_analyze': 'วิเคราะห์ประเภทผิวของฉัน',
+        'btn_export': 'ดาวน์โหลดรายงาน PDF',
+        'result_method_quiz': 'วิธีแบบสอบถาม',
+        'result_method_image': 'วิธีวิเคราะห์ภาพ',
+        'morning_routine': 'ขั้นตอนดูแลผิวตอนเช้า',
+        'evening_routine': 'ขั้นตอนดูแลผิวตอนเย็น',
+        'products': 'ผลิตภัณฑ์แนะนำ',
+        'ingredients': 'คู่มือส่วนผสม',
+        'look_for': 'ส่วนผสมที่ควรมี',
+        'avoid_label': 'ส่วนผสมที่ควรหลีกเลี่ยง',
+        'confidence': 'ความมั่นใจ',
+        'history_title': 'ประวัติผิวของคุณ',
+        'history_sub': 'ติดตามการเปลี่ยนแปลงประเภทผิวของคุณเมื่อเวลาผ่านไป',
+        'no_history': 'ยังไม่มีผลลัพธ์ที่บันทึก กรุณาวิเคราะห์เพื่อเริ่มติดตาม',
+        'save_result': 'บันทึกผลลัพธ์นี้',
+        'saved': 'บันทึกผลลัพธ์แล้ว!',
+        'upload_title': 'วางรูปภาพของคุณที่นี่',
+        'upload_sub': 'หรือคลิกเพื่อเลือก',
+        'upload_hint': 'JPG, PNG · แสงสว่างชัดเจน · หน้าตรง · ไม่แต่งหน้าหนัก',
+        'btn_analyze_img': 'วิเคราะห์ภาพ',
+        'condition_title': 'การวิเคราะห์สภาพผิว',
+        'condition_normal': 'ไม่พบปัญหาที่สำคัญ',
+        'condition_acne': 'อาจพบสิว',
+        'condition_redness': 'พบความแดง / การระคายเคือง',
+        'condition_dark': 'พบจุดด่างดำ',
+        'skin_dry': 'แห้ง', 'skin_normal': 'ปกติ', 'skin_oily': 'มัน', 'skin_combo': 'ผสม',
+    }
+}
+
+
+@app.route('/api/translations/<lang>')
+def get_translations(lang):
+    return jsonify(TRANSLATIONS.get(lang, TRANSLATIONS['en']))
+
+
+# ── Skin Condition Checker ────────────────────────────────────────────
+def check_skin_conditions(img_array):
+    """
+    Rule-based skin condition detection using color analysis.
+    Detects: acne (red spots), redness, dark spots.
+    """
+    img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    hsv     = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    lab     = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2Lab)
+
+    conditions = []
+    severity   = {}
+
+    # ── Acne detection (red/pink spots) ────────────────────────────
+    lower_red1 = np.array([0,   50,  50])
+    upper_red1 = np.array([10,  255, 255])
+    lower_red2 = np.array([160, 50,  50])
+    upper_red2 = np.array([180, 255, 255])
+    mask_r1    = cv2.inRange(hsv, lower_red1, upper_red1)
+    mask_r2    = cv2.inRange(hsv, lower_red2, upper_red2)
+    red_mask   = cv2.bitwise_or(mask_r1, mask_r2)
+
+    # Find contours (red spots = potential acne)
+    contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    spot_contours = [c for c in contours if 10 < cv2.contourArea(c) < 800]
+    acne_score = len(spot_contours)
+
+    if acne_score >= 8:
+        conditions.append('acne')
+        severity['acne'] = 'moderate' if acne_score < 20 else 'high'
+    elif acne_score >= 3:
+        conditions.append('acne')
+        severity['acne'] = 'mild'
+
+    # ── Redness detection (overall red tone) ───────────────────────
+    red_pixels  = np.sum(red_mask > 0)
+    total_pixels= img_array.shape[0] * img_array.shape[1]
+    redness_pct = red_pixels / total_pixels * 100
+    if redness_pct > 8:
+        conditions.append('redness')
+        severity['redness'] = 'mild' if redness_pct < 15 else 'moderate'
+
+    # ── Dark spots detection (using L channel in LAB) ──────────────
+    L_channel  = lab[:, :, 0]
+    dark_mask  = (L_channel < 80).astype(np.uint8) * 255
+    dark_contours, _ = cv2.findContours(dark_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    dark_spots = [c for c in dark_contours if 20 < cv2.contourArea(c) < 1500]
+    if len(dark_spots) >= 3:
+        conditions.append('dark_spots')
+        severity['dark_spots'] = 'mild' if len(dark_spots) < 8 else 'moderate'
+
+    if not conditions:
+        conditions.append('normal')
+
+    return {
+        'conditions': conditions,
+        'severity':   severity,
+        'scores': {
+            'acne':       min(100, acne_score * 5),
+            'redness':    round(redness_pct, 1),
+            'dark_spots': len(dark_spots)
+        }
+    }
+
+
+@app.route('/api/check-conditions', methods=['POST'])
+def api_check_conditions():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image uploaded'}), 400
+    file = request.files['image']
+    try:
+        img_bytes = file.read()
+        img       = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        max_size  = 800
+        if img.width > max_size or img.height > max_size:
+            img.thumbnail((max_size, max_size), Image.LANCZOS)
+        img_arr    = np.array(img)
+        conditions = check_skin_conditions(img_arr)
+        return jsonify(conditions)
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ── PDF Export ────────────────────────────────────────────────────────
+@app.route('/api/export-pdf', methods=['POST'])
+def export_pdf():
+    data = request.get_json()
+    skin_type   = data.get('skin_type', 'Unknown')
+    method      = data.get('method', 'Questionnaire')
+    confidence  = data.get('confidence', 0)
+    percentages = data.get('percentages', {})
+    lang        = data.get('lang', 'en')
+    date_str    = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+
+    info = SKIN_INFO.get(skin_type, {})
+    morning  = info.get('morning_routine', [])
+    evening  = info.get('evening_routine', [])
+    products = info.get('products', {})
+    love     = info.get('ingredients_love', [])
+    avoid    = info.get('ingredients_avoid', [])
+
+    # Build HTML for PDF
+    scores_html = ''.join([
+        f'<tr><td style="padding:6px 12px;border-bottom:1px solid #ddeee4">{k}</td>'
+        f'<td style="padding:6px 12px;border-bottom:1px solid #ddeee4;color:#3d7a5a;font-weight:600">{v}%</td>'
+        f'<td style="padding:6px 12px;border-bottom:1px solid #ddeee4"><div style="height:8px;width:{v}%;background:#5fa882;border-radius:4px"></div></td></tr>'
+        for k, v in sorted(percentages.items(), key=lambda x: -x[1])
+    ])
+
+    morning_html = ''.join([
+        f'<div style="display:flex;gap:12px;padding:10px;background:#f4f8f5;border-radius:8px;margin-bottom:6px">'
+        f'<span style="color:#5fa882;font-weight:700;min-width:24px">{s["step"]}</span>'
+        f'<div><div style="font-weight:600;font-size:13px">{s["name"]}</div>'
+        f'<div style="font-size:12px;color:#7aac8e;margin-top:2px">{s["desc"]}</div></div></div>'
+        for s in morning
+    ])
+
+    evening_html = ''.join([
+        f'<div style="display:flex;gap:12px;padding:10px;background:#f4f8f5;border-radius:8px;margin-bottom:6px">'
+        f'<span style="color:#5fa882;font-weight:700;min-width:24px">{s["step"]}</span>'
+        f'<div><div style="font-weight:600;font-size:13px">{s["name"]}</div>'
+        f'<div style="font-size:12px;color:#7aac8e;margin-top:2px">{s["desc"]}</div></div></div>'
+        for s in evening
+    ])
+
+    products_html = ''.join([
+        f'<div style="margin-bottom:14px;padding:12px;border:1px solid #ddeee4;border-radius:10px;background:#fff">'
+        f'<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#5fa882;font-weight:700;margin-bottom:4px">{cat}</div>'
+        f'<div style="font-size:12px;color:#7aac8e;margin-bottom:8px">{d["advice"]}</div>'
+        f'<div style="font-size:12px">{"".join([f"<div style=padding:3px 0;border-bottom:1px solid #f0f8f3><strong>{b[chr(110)+chr(97)+chr(109)+chr(101)]}</strong> — {b[chr(119)+chr(104)+chr(121)]}</div>" for b in d.get("brands",[])])}</div>'
+        f'</div>'
+        for cat, d in products.items()
+    ])
+
+    love_tags  = ''.join([f'<span style="padding:3px 10px;background:#eaf5ef;color:#3d7a5a;border-radius:999px;font-size:11px;margin:2px;display:inline-block;border:1px solid #b8ddc8">{i}</span>' for i in love])
+    avoid_tags = ''.join([f'<span style="padding:3px 10px;background:#fdf8f5;color:#c47a5a;border-radius:999px;font-size:11px;margin:2px;display:inline-block;border:1px solid #f0cfc2">{i}</span>' for i in avoid])
+
+    emoji_map = {'Dry':'💧','Normal':'✨','Oily':'💫','Combination':'⚡'}
+    emoji = emoji_map.get(skin_type, '◈')
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=DM+Sans:wght@300;400;500&display=swap');
+  body {{ font-family: 'DM Sans', sans-serif; background: #fff; color: #1e3d2d; margin: 0; padding: 0; }}
+  .page {{ max-width: 800px; margin: 0 auto; padding: 40px; }}
+  h1,h2,h3 {{ font-family: 'Cormorant Garamond', serif; }}
+  .header {{ text-align: center; padding: 40px; background: linear-gradient(135deg,#f0f8f3,#dff0e7); border-radius: 16px; margin-bottom: 30px; }}
+  .header h1 {{ font-size: 2.5rem; color: #1e3d2d; margin-bottom: 8px; }}
+  .header .sub {{ color: #7aac8e; font-size: 14px; }}
+  .result-box {{ background: #f4f8f5; border: 1px solid #ddeee4; border-radius: 14px; padding: 24px; text-align: center; margin-bottom: 24px; }}
+  .result-emoji {{ font-size: 3rem; }}
+  .result-type {{ font-family: 'Cormorant Garamond', serif; font-size: 2.2rem; font-weight: 600; color: #1e3d2d; }}
+  .result-type span {{ color: #5fa882; }}
+  .result-conf {{ font-size: 13px; color: #8aad97; margin: 6px 0; }}
+  .section-title {{ font-family: 'Cormorant Garamond', serif; font-size: 1.3rem; font-weight: 600; color: #1e3d2d; margin: 28px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #ddeee4; }}
+  table {{ width: 100%; border-collapse: collapse; }}
+  .footer {{ text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddeee4; font-size: 12px; color: #8aad97; }}
+  .watermark {{ font-family: 'Cormorant Garamond', serif; font-size: 1.1rem; color: #5fa882; font-weight: 600; }}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.1em;color:#5fa882;margin-bottom:8px">🌿 DermaScan · Senior Research Project</div>
+    <h1>Skin Type Analysis Report</h1>
+    <div class="sub">Generated on {date_str} · Method: {method}</div>
+  </div>
+
+  <div class="result-box">
+    <div class="result-emoji">{emoji}</div>
+    <div class="result-type"><span>{skin_type}</span> Skin</div>
+    <div class="result-conf">{confidence}% confidence · {method}</div>
+    <div style="font-size:13px;color:#7aac8e;margin-top:8px;max-width:400px;margin-left:auto;margin-right:auto">{info.get('description','')}</div>
+  </div>
+
+  <div class="section-title">📊 Score Breakdown</div>
+  <table>{scores_html}</table>
+
+  <div class="section-title">🌅 Morning Routine</div>
+  {morning_html}
+
+  <div class="section-title">🌙 Evening Routine</div>
+  {evening_html}
+
+  <div class="section-title">🛍️ Product Recommendations</div>
+  {products_html}
+
+  <div class="section-title">🔬 Ingredient Guide</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+    <div style="padding:14px;background:#eaf5ef;border:1px solid #b8ddc8;border-radius:10px">
+      <div style="font-size:12px;font-weight:700;color:#3d7a5a;margin-bottom:8px">✅ LOOK FOR</div>
+      <div>{love_tags}</div>
+    </div>
+    <div style="padding:14px;background:#fdf8f5;border:1px solid #f0cfc2;border-radius:10px">
+      <div style="font-size:12px;font-weight:700;color:#c47a5a;margin-bottom:8px">❌ AVOID</div>
+      <div>{avoid_tags}</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="watermark">🌿 DermaScan</div>
+    <p>This report is for educational purposes only. Consult a licensed dermatologist for medical advice.</p>
+    <p>Senior Research Project · Skin Type Recognition System</p>
+  </div>
+</div>
+</body>
+</html>"""
+
+    # Return HTML — browser will print/save as PDF
+    return html_content, 200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': f'inline; filename="DermaScan_Report_{skin_type}.html"'
+    }
 
 
 if __name__ == '__main__':
