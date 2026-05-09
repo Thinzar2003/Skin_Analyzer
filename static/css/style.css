@@ -573,3 +573,119 @@ body {
 .chart-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
 .chart-bar { width: 100%; background: var(--accent2); border-radius: 4px 4px 0 0; min-height: 4px; transition: height 0.5s ease; }
 .chart-label { font-size: 0.65rem; color: var(--text-soft); text-align: center; }
+
+/* ── SUS Survey ────────────────────────────────────────────────────── */
+.sus-instructions {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.2rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.sus-instructions p { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.6rem; }
+.sus-scale-legend {
+  display: flex; gap: 1rem; flex-wrap: wrap;
+  font-size: 0.78rem; color: var(--text-soft);
+}
+.sus-scale-legend span {
+  padding: 0.2rem 0.6rem;
+  background: var(--bg3); border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.sus-questions { display: flex; flex-direction: column; gap: 0.8rem; margin-bottom: 2rem; }
+
+.sus-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.1rem 1.4rem;
+  display: flex; align-items: center; gap: 1rem;
+  transition: border-color 0.2s;
+}
+.sus-card.answered { border-color: var(--border2); }
+
+.sus-q-num {
+  font-family: var(--font-display); font-size: 0.9rem;
+  color: var(--accent2); font-weight: 600;
+  min-width: 28px; letter-spacing: 0.05em;
+}
+.sus-q-text {
+  flex: 1; font-size: 0.92rem; color: var(--text); line-height: 1.5;
+}
+.sus-options {
+  display: flex; gap: 0.4rem; flex-shrink: 0;
+}
+.sus-opt {
+  display: flex; flex-direction: column; align-items: center;
+  cursor: pointer;
+}
+.sus-opt input[type=radio] { display: none; }
+.sus-opt span {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--border);
+  border-radius: 50%; font-size: 0.88rem; font-weight: 500;
+  color: var(--text-soft); transition: all 0.15s;
+  cursor: pointer;
+}
+.sus-opt:hover span { border-color: var(--accent2); color: var(--accent); }
+.sus-opt input:checked + span {
+  background: var(--accent); border-color: var(--accent);
+  color: #fff; font-weight: 700;
+}
+
+/* SUS Result */
+.sus-result-box {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 2rem;
+  text-align: center; margin-bottom: 1.5rem;
+}
+.sus-score-big {
+  font-family: var(--font-display); font-size: 5rem;
+  font-weight: 600; line-height: 1;
+  margin-bottom: 0.3rem;
+}
+.sus-grade {
+  display: inline-block; padding: 0.35rem 1.2rem;
+  border-radius: 999px; font-size: 0.95rem;
+  font-weight: 600; margin-bottom: 0.8rem;
+}
+.sus-scale {
+  display: flex; gap: 0.3rem; justify-content: center;
+  flex-wrap: wrap; margin: 1rem 0;
+}
+.sus-scale-item {
+  padding: 0.3rem 0.8rem; border-radius: 8px;
+  font-size: 0.78rem; font-weight: 500; opacity: 0.5;
+  border: 1px solid transparent;
+}
+.sus-scale-item.active { opacity: 1; border-color: currentColor; }
+
+/* Combined Result */
+.combined-result-box {
+  background: var(--accent); border-radius: var(--radius);
+  padding: 1.8rem; text-align: center;
+  margin-bottom: 1.5rem; position: relative; overflow: hidden;
+}
+.combined-result-box::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.1) 0%, transparent 60%);
+}
+.combined-type {
+  font-family: var(--font-display); font-size: 2.2rem;
+  font-weight: 600; color: #fff; margin-bottom: 0.3rem;
+}
+.combined-conf { font-size: 0.85rem; color: rgba(255,255,255,0.8); margin-bottom: 0.8rem; }
+.agree-badge {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.3rem 1rem; border-radius: 999px;
+  font-size: 0.82rem; font-weight: 600;
+}
+.agree-badge.agree  { background: rgba(255,255,255,0.2); color: #fff; }
+.agree-badge.differ { background: rgba(245,166,35,0.3);  color: #fde68a; }
+.formula-line {
+  font-size: 0.8rem; color: rgba(255,255,255,0.7);
+  font-family: 'Courier New', monospace; margin-top: 0.6rem;
+}
+
+@media (max-width: 700px) {
+  .sus-card { flex-direction: column; align-items: flex-start; }
+  .sus-options { margin-top: 0.5rem; }
+}
