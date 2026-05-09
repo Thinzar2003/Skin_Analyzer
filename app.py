@@ -782,6 +782,97 @@ def export_pdf():
     }
 
 
+# ── Combined Result ───────────────────────────────────────────────────
+@app.route('/api/combined-result', methods=['POST'])
+def api_combined_result():
+    data        = request.get_json()
+    q_result    = data.get('q_result', {})
+    img_result  = data.get('img_result', {})
+
+    q_pcts   = q_result.get('percentages', {})
+    img_pcts = img_result.get('percentages', {})
+    q_conf   = q_result.get('confidence', 0)
+    img_conf = img_result.get('confidence', 0)
+
+    # Weighted combination: Q=60%, IMG=40%
+    skin_types = ['Dry', 'Normal', 'Oily', 'Combination']
+    combined = {}
+    for t in skin_types:
+        q_score   = q_pcts.get(t, 0)
+        img_score = img_pcts.get(t, 0)
+        combined[t] = round(0.60 * q_score + 0.40 * img_score, 1)
+
+    total     = sum(combined.values()) or 1
+    combined  = {k: round(v / total * 100, 1) for k, v in combined.items()}
+    best      = max(combined, key=combined.get)
+    confidence= round(combined[best], 1)
+    combined_conf = round(0.60 * q_conf + 0.40 * img_conf, 1)
+
+    agree = q_result.get('skin_type') == img_result.get('skin_type')
+
+    return jsonify({
+        'skin_type':   best,
+        'percentages': combined,
+        'confidence':  combined_conf,
+        'agree':       agree,
+        'q_type':      q_result.get('skin_type'),
+        'img_type':    img_result.get('skin_type'),
+        'info':        SKIN_INFO.get(best, {})
+    })
+
+
+# ── SUS Survey ────────────────────────────────────────────────────────
+@app.route('/api/sus-score', methods=['POST'])
+def api_sus_score():
+    data    = request.get_json()
+    answers = data.get('answers', [])  # list of 10 ints 1-5
+
+    if len(answers) != 10:
+        return jsonify({'error': 'Need exactly 10 answers'}), 400
+
+    # SUS formula (Brooke, 1996)
+    # Odd questions (1,3,5,7,9): score - 1
+    # Even questions (2,4,6,8,10): 5 - score
+    # Sum all, multiply by 2.5
+    total = 0
+    for i, ans in enumerate(answers):
+        try:
+            val = int(ans)
+            if i % 2 == 0:   # odd question (0-indexed)
+                total += val - 1
+            else:             # even question
+                total += 5 - val
+        except:
+            return jsonify({'error': f'Invalid answer at position {i+1}'}), 400
+
+    sus_score = round(total * 2.5, 1)
+
+    # Grade
+    if sus_score >= 91:
+        grade = 'Best Imaginable'
+        grade_color = '#3b82f6'
+    elif sus_score >= 81:
+        grade = 'Excellent'
+        grade_color = '#5fa882'
+    elif sus_score >= 68:
+        grade = 'Good'
+        grade_color = '#f59e0b'
+    elif sus_score >= 52:
+        grade = 'Marginal'
+        grade_color = '#fb923c'
+    else:
+        grade = 'Poor'
+        grade_color = '#f87171'
+
+    return jsonify({
+        'sus_score':   sus_score,
+        'grade':       grade,
+        'grade_color': grade_color,
+        'answers':     answers,
+        'percentile':  round(sus_score, 0)
+    })
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
