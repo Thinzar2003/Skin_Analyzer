@@ -632,11 +632,213 @@ function renderSUSResult(data, answers) {
   resultDiv.scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
-// ── Init ───────────────────────────────────────────────────────────────
+// Init handled by checkAuth callback below
+
+// ── Auth ───────────────────────────────────────────────────────────────
+async function checkAuth() {
+  const res  = await fetch('/api/auth/me');
+  const data = await res.json();
+  if (!data.logged_in) {
+    window.location.href = '/login';
+    return null;
+  }
+  // Show user bar
+  document.getElementById('user-bar').style.display = 'flex';
+  document.getElementById('user-greeting').innerHTML =
+    `Hello, <strong>${data.username}</strong>`;
+  return data;
+}
+
+async function doLogout() {
+  await fetch('/api/auth/logout', { method:'POST' });
+  window.location.href = '/login';
+}
+
+// ── Verify Result Box ──────────────────────────────────────────────────
+function renderVerifyBox(resultId, detectedType, containerId) {
+  const skinTypes = ['Dry','Normal','Oily','Combination'];
+  const optionsHtml = skinTypes.map(t =>
+    `<option value="${t}" ${t===detectedType?'selected':''}>${t}</option>`
+  ).join('');
+
+  const box = document.createElement('div');
+  box.className = 'verify-box';
+  box.id = `verify-${resultId}`;
+  box.innerHTML = `
+    <p>Is this result correct for your skin type?</p>
+    <div class="verify-opts">
+      <button class="verify-yes-btn" onclick="submitVerify(${resultId},'${detectedType}',true,'${containerId}')">
+        ✅ Yes, this is correct!
+      </button>
+      <div class="verify-type-wrap">
+        <select class="verify-select" id="vsel-${resultId}">
+          ${skinTypes.map(t=>`<option value="${t}">${t}</option>`).join('')}
+        </select>
+        <button class="verify-no-btn" onclick="submitVerifyNo(${resultId},'${containerId}')">
+          No, my actual type is →
+        </button>
+      </div>
+    </div>
+    <p style="font-size:0.75rem;color:var(--text-soft);margin-top:0.8rem">
+      Your feedback helps calculate the real accuracy of DermaScan.
+    </p>`;
+
+  const container = document.getElementById(containerId);
+  // Remove old verify box if exists
+  const old = container.querySelector('.verify-box');
+  if (old) old.remove();
+  container.appendChild(box);
+}
+
+async function submitVerify(resultId, verifiedType, isCorrect, containerId) {
+  await fetch('/api/verify-result', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ result_id:resultId, verified_type:verifiedType, is_correct:isCorrect })
+  });
+  const box = document.getElementById(`verify-${resultId}`);
+  box.innerHTML = `<div class="verify-done">✅ Thank you! Your feedback has been recorded for research.</div>`;
+}
+
+async function submitVerifyNo(resultId, containerId) {
+  const sel         = document.getElementById(`vsel-${resultId}`);
+  const actualType  = sel.value;
+  await fetch('/api/verify-result', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ result_id:resultId, verified_type:actualType, is_correct:false })
+  });
+  const box = document.getElementById(`verify-${resultId}`);
+  box.innerHTML = `<div class="verify-done">✅ Thank you! We recorded that your actual skin type is <strong>${actualType}</strong>.</div>`;
+}
+
+// Override renderResult to add verify box + check auth
+const _origRenderResult = renderResult;
+// Patch renderResult to append verify box after rendering
+function renderResultWithVerify(containerId, data, method, features=null, condData=null) {
+  renderResult(containerId, data, method, features, condData);
+  if (data.result_id) {
+    renderVerifyBox(data.result_id, data.skin_type, containerId);
+  }
+}
+
+// Override questionnaire submit to use new function
 document.addEventListener('DOMContentLoaded', () => {
-  initLang();
-  initTabs();
-  initQuestionnaire();
-  initImageUpload();
-  initSUS();
+  checkAuth().then(user => {
+    if (!user) return;
+    initLang();
+    initTabs();
+    initQuestionnairePatch();
+    initImageUploadPatch();
+    initSUS();
+  });
 });
+
+function initQuestionnairePatch() {
+  const form      = document.getElementById('quiz-form');
+  const submitBtn = document.getElementById('quiz-submit');
+  const note      = document.getElementById('submit-note');
+  const bar       = document.getElementById('progress-bar');
+  const label     = document.getElementById('progress-label');
+  const total     = 8;
+
+  form.addEventListener('change', () => {
+    let answered = 0;
+    for (let i=0; i<total; i++) {
+      if (form.querySelector(`input[name="q${i}"]:checked`)) {
+        answered++;
+        form.querySelector(`[data-q="${i}"]`).classList.add('answered');
+      }
+    }
+    bar.style.width   = Math.round(answered/total*100)+'%';
+    label.textContent = `${answered} / ${total} answered`;
+    submitBtn.disabled = answered < total;
+    note.textContent   = answered===total ? 'Ready! Click to see your result.' : `${total-answered} question(s) remaining`;
+  });
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const answers = [];
+    for (let i=0; i<total; i++) {
+      const c = form.querySelector(`input[name="q${i}"]:checked`);
+      answers.push(c ? c.value : '');
+    }
+    submitBtn.disabled   = true;
+    submitBtn.textContent = 'Analyzing…';
+    try {
+      const res  = await fetch('/api/questionnaire', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({answers})
+      });
+      const data = await res.json();
+      if (data.error === 'Login required') { window.location.href='/login'; return; }
+      state.qResult = data;
+      renderResultWithVerify('quiz-result', data, state.t.result_method_quiz||'Questionnaire Method');
+      document.getElementById('step-q').querySelector('.step-status').textContent = '✓ Done';
+      document.getElementById('step-q').querySelector('.step-status').classList.add('done');
+      if (state.imgResult) computeCombined();
+    } catch(err) { alert('Analysis failed. Please try again.'); }
+    finally {
+      submitBtn.disabled   = false;
+      submitBtn.textContent = state.t.btn_analyze||'Analyze My Skin Type →';
+    }
+  });
+}
+
+function initImageUploadPatch() {
+  const area       = document.getElementById('upload-area');
+  const input      = document.getElementById('img-input');
+  const preview    = document.getElementById('img-preview');
+  const previewImg = document.getElementById('preview-img');
+  const changeBtn  = document.getElementById('change-img');
+  const submitBtn  = document.getElementById('img-submit');
+  let selectedFile = null;
+
+  area.addEventListener('click',  () => input.click());
+  changeBtn.addEventListener('click', () => input.click());
+  area.addEventListener('dragover',  e => { e.preventDefault(); area.classList.add('drag-over'); });
+  area.addEventListener('dragleave', () => area.classList.remove('drag-over'));
+  area.addEventListener('drop', e => {
+    e.preventDefault(); area.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+  input.addEventListener('change', () => { if (input.files[0]) handleFile(input.files[0]); });
+
+  function handleFile(file) {
+    if (!file.type.startsWith('image/')) { alert('Please upload an image file.'); return; }
+    selectedFile   = file;
+    previewImg.src = URL.createObjectURL(file);
+    area.classList.add('hidden');
+    preview.classList.remove('hidden');
+    submitBtn.disabled = false;
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    const resultDiv = document.getElementById('img-result');
+    resultDiv.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><p style="color:var(--text-soft)">Analyzing your skin…</p></div>`;
+    resultDiv.classList.remove('hidden');
+    submitBtn.disabled   = true;
+    submitBtn.textContent = 'Analyzing…';
+    const fd = new FormData();
+    fd.append('image', selectedFile);
+    try {
+      const [typeRes, condRes] = await Promise.all([
+        fetch('/api/analyze-image', {method:'POST', body:fd}),
+        (async()=>{ const f2=new FormData(); f2.append('image',selectedFile); return fetch('/api/check-conditions',{method:'POST',body:f2}); })()
+      ]);
+      const data    = await typeRes.json();
+      const condData= await condRes.json();
+      if (data.error==='Login required') { window.location.href='/login'; return; }
+      if (data.error) { resultDiv.innerHTML=`<div style="text-align:center;padding:2rem"><p style="color:#c47a5a">⚠️ ${data.error}</p></div>`; return; }
+      state.imgResult = data;
+      renderResultWithVerify('img-result', data, state.t.result_method_image||'Image Analysis Method', data.features, condData);
+      document.getElementById('step-i').querySelector('.step-status').textContent = '✓ Done';
+      document.getElementById('step-i').querySelector('.step-status').classList.add('done');
+      if (state.qResult) computeCombined();
+    } catch(err) {
+      resultDiv.innerHTML=`<div style="text-align:center;padding:2rem"><p style="color:#c47a5a">⚠️ Connection error. Please try again.</p></div>`;
+    } finally {
+      submitBtn.disabled   = false;
+      submitBtn.textContent = state.t.btn_analyze_img||'Analyze Image →';
+    }
+  });
+}
