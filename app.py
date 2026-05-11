@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, Response
 import numpy as np
 import cv2
 import base64
@@ -7,11 +7,100 @@ from PIL import Image
 import io
 import json
 import datetime
+import sqlite3
+import csv
+from collections import Counter
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
+app.secret_key = os.environ.get('SECRET_KEY', 'dermascan-secret-2025-xK9pL')
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# ── Comprehensive Skincare Database ──────────────────────────────────
+# ── Database ───────────────────────────────────────────────────────────
+DB_PATH = os.path.join(os.path.dirname(__file__), 'dermascan.db')
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT    UNIQUE NOT NULL,
+            password_hash TEXT    NOT NULL,
+            role          TEXT    DEFAULT 'user',
+            created_at    TEXT    NOT NULL
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS analysis_results (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER NOT NULL,
+            username      TEXT    NOT NULL,
+            timestamp     TEXT    NOT NULL,
+            method        TEXT    NOT NULL,
+            skin_type     TEXT    NOT NULL,
+            confidence    REAL    NOT NULL,
+            dry_pct       REAL,
+            normal_pct    REAL,
+            oily_pct      REAL,
+            combo_pct     REAL,
+            user_verified TEXT,
+            is_correct    INTEGER,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS sus_responses (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id   INTEGER,
+            username  TEXT,
+            timestamp TEXT NOT NULL,
+            q1  INTEGER, q2  INTEGER, q3  INTEGER, q4  INTEGER, q5  INTEGER,
+            q6  INTEGER, q7  INTEGER, q8  INTEGER, q9  INTEGER, q10 INTEGER,
+            sus_score REAL NOT NULL,
+            grade     TEXT NOT NULL
+        )
+    """)
+
+    # Create default admin
+    existing = c.execute("SELECT id FROM users WHERE username='admin'").fetchone()
+    if not existing:
+        c.execute(
+            "INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+            ('admin', generate_password_hash('admin1234'), 'admin', datetime.datetime.now().isoformat())
+        )
+
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# ── Auth helpers ───────────────────────────────────────────────────────
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'error': 'Login required', 'redirect': '/login'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if session.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
 SKIN_INFO = {
     'Dry': {
         'emoji': '💧', 'color': '#4f9cf9',
@@ -349,6 +438,10 @@ MAPPINGS = [
 ]
 
 
+
+
+
+
 def classify_questionnaire(answers):
     scores = {'Dry': 0, 'Normal': 0, 'Oily': 0, 'Combination': 0}
     for i, ans in enumerate(answers):
@@ -360,6 +453,10 @@ def classify_questionnaire(answers):
     best  = max(scores, key=scores.get)
     conf  = round(scores[best] / total * 100, 1)
     return best, pcts, conf
+
+
+
+
 
 
 def analyze_image_rules(img_array):
@@ -439,6 +536,25 @@ def api_questionnaire():
     data    = request.get_json()
     answers = data.get('answers', [])
     skin_type, percentages, confidence = classify_questionnaire(answers)
+
+    # Save to DB
+    try:
+        conn = get_db()
+        conn.execute('''
+            INSERT INTO analysis_results
+              (timestamp, method, skin_type, confidence, dry_pct, normal_pct, oily_pct, combo_pct)
+            VALUES (?,?,?,?,?,?,?,?)
+        ''', (
+            datetime.datetime.now().isoformat(),
+            'Questionnaire', skin_type, confidence,
+            percentages.get('Dry', 0), percentages.get('Normal', 0),
+            percentages.get('Oily', 0), percentages.get('Combination', 0)
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'DB save error: {e}')
+
     return jsonify({
         'skin_type': skin_type,
         'percentages': percentages,
@@ -464,6 +580,24 @@ def api_analyze_image():
             img.thumbnail((max_size, max_size), Image.LANCZOS)
         img_arr = np.array(img)
         skin_type, percentages, confidence, features = analyze_image_rules(img_arr)
+        # Save to DB
+        try:
+            conn = get_db()
+            conn.execute('''
+                INSERT INTO analysis_results
+                  (timestamp, method, skin_type, confidence, dry_pct, normal_pct, oily_pct, combo_pct)
+                VALUES (?,?,?,?,?,?,?,?)
+            ''', (
+                datetime.datetime.now().isoformat(),
+                'Image Analysis', skin_type, confidence,
+                percentages.get('Dry', 0), percentages.get('Normal', 0),
+                percentages.get('Oily', 0), percentages.get('Combination', 0)
+            ))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f'DB save error: {e}')
+
         return jsonify({
             'skin_type': skin_type,
             'percentages': percentages,
@@ -479,105 +613,14 @@ def api_analyze_image():
 
 
 # ── Thai / English translations ───────────────────────────────────────
-TRANSLATIONS = {
-    'en': {
-        'title': 'Skin Type Analyzer',
-        'hero_badge': 'Senior Research Project',
-        'hero_title': 'Know Your Skin Type',
-        'hero_sub': 'Dual-method analysis combining dermatologist-validated questionnaire with AI-powered image recognition.',
-        'tab_quiz': 'Questionnaire',
-        'tab_image': 'Image Analysis',
-        'tab_compare': 'Compare Results',
-        'tab_history': 'My History',
-        'quiz_title': 'Skin Type Questionnaire',
-        'quiz_sub': 'Answer all 8 questions honestly for the most accurate result.',
-        'btn_analyze': 'Analyze My Skin Type',
-        'btn_export': 'Download PDF Report',
-        'result_method_quiz': 'Questionnaire Method',
-        'result_method_image': 'Image Analysis Method',
-        'morning_routine': 'Morning Routine',
-        'evening_routine': 'Evening Routine',
-        'products': 'Product Recommendations',
-        'ingredients': 'Ingredient Guide',
-        'look_for': 'Ingredients to Look For',
-        'avoid_label': 'Ingredients to Avoid',
-        'confidence': 'confidence',
-        'history_title': 'Your Skin History',
-        'history_sub': 'Track how your skin type changes over time.',
-        'no_history': 'No results saved yet. Complete an analysis to start tracking.',
-        'save_result': 'Save This Result',
-        'saved': 'Result saved!',
-        'upload_title': 'Drop your photo here',
-        'upload_sub': 'or click to browse',
-        'upload_hint': 'JPG, PNG · Clear lighting · Face forward · No heavy makeup',
-        'btn_analyze_img': 'Analyze Image',
-        'condition_title': 'Skin Condition Analysis',
-        'condition_normal': 'No major concerns detected',
-        'condition_acne': 'Possible acne detected',
-        'condition_redness': 'Redness / irritation detected',
-        'condition_dark': 'Dark spots detected',
-        'skin_dry': 'Dry', 'skin_normal': 'Normal', 'skin_oily': 'Oily', 'skin_combo': 'Combination',
-    },
-    'th': {
-        'title': 'วิเคราะห์ประเภทผิว',
-        'hero_badge': 'โครงงานวิจัยระดับอุดมศึกษา',
-        'hero_title': 'รู้จักประเภทผิวของคุณ',
-        'hero_sub': 'การวิเคราะห์แบบคู่ ผสมผสานแบบสอบถามที่ผ่านการตรวจสอบโดยผู้เชี่ยวชาญและการรู้จำภาพด้วย AI',
-        'tab_quiz': 'แบบสอบถาม',
-        'tab_image': 'วิเคราะห์จากภาพ',
-        'tab_compare': 'เปรียบเทียบผล',
-        'tab_history': 'ประวัติของฉัน',
-        'quiz_title': 'แบบสอบถามประเภทผิว',
-        'quiz_sub': 'ตอบคำถามทั้ง 8 ข้ออย่างซื่อสัตย์เพื่อผลลัพธ์ที่แม่นยำที่สุด',
-        'btn_analyze': 'วิเคราะห์ประเภทผิวของฉัน',
-        'btn_export': 'ดาวน์โหลดรายงาน PDF',
-        'result_method_quiz': 'วิธีแบบสอบถาม',
-        'result_method_image': 'วิธีวิเคราะห์ภาพ',
-        'morning_routine': 'ขั้นตอนดูแลผิวตอนเช้า',
-        'evening_routine': 'ขั้นตอนดูแลผิวตอนเย็น',
-        'products': 'ผลิตภัณฑ์แนะนำ',
-        'ingredients': 'คู่มือส่วนผสม',
-        'look_for': 'ส่วนผสมที่ควรมี',
-        'avoid_label': 'ส่วนผสมที่ควรหลีกเลี่ยง',
-        'confidence': 'ความมั่นใจ',
-        'history_title': 'ประวัติผิวของคุณ',
-        'history_sub': 'ติดตามการเปลี่ยนแปลงประเภทผิวของคุณเมื่อเวลาผ่านไป',
-        'no_history': 'ยังไม่มีผลลัพธ์ที่บันทึก กรุณาวิเคราะห์เพื่อเริ่มติดตาม',
-        'save_result': 'บันทึกผลลัพธ์นี้',
-        'saved': 'บันทึกผลลัพธ์แล้ว!',
-        'upload_title': 'วางรูปภาพของคุณที่นี่',
-        'upload_sub': 'หรือคลิกเพื่อเลือก',
-        'upload_hint': 'JPG, PNG · แสงสว่างชัดเจน · หน้าตรง · ไม่แต่งหน้าหนัก',
-        'btn_analyze_img': 'วิเคราะห์ภาพ',
-        'condition_title': 'การวิเคราะห์สภาพผิว',
-        'condition_normal': 'ไม่พบปัญหาที่สำคัญ',
-        'condition_acne': 'อาจพบสิว',
-        'condition_redness': 'พบความแดง / การระคายเคือง',
-        'condition_dark': 'พบจุดด่างดำ',
-        'skin_dry': 'แห้ง', 'skin_normal': 'ปกติ', 'skin_oily': 'มัน', 'skin_combo': 'ผสม',
-    }
-}
 
 
-@app.route('/api/translations/<lang>')
-def get_translations(lang):
-    return jsonify(TRANSLATIONS.get(lang, TRANSLATIONS['en']))
-
-
-# ── Skin Condition Checker ────────────────────────────────────────────
 def check_skin_conditions(img_array):
-    """
-    Rule-based skin condition detection using color analysis.
-    Detects: acne (red spots), redness, dark spots.
-    """
     img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     hsv     = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     lab     = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2Lab)
-
     conditions = []
     severity   = {}
-
-    # ── Acne detection (red/pink spots) ────────────────────────────
     lower_red1 = np.array([0,   50,  50])
     upper_red1 = np.array([10,  255, 255])
     lower_red2 = np.array([160, 50,  50])
@@ -585,51 +628,225 @@ def check_skin_conditions(img_array):
     mask_r1    = cv2.inRange(hsv, lower_red1, upper_red1)
     mask_r2    = cv2.inRange(hsv, lower_red2, upper_red2)
     red_mask   = cv2.bitwise_or(mask_r1, mask_r2)
-
-    # Find contours (red spots = potential acne)
     contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     spot_contours = [c for c in contours if 10 < cv2.contourArea(c) < 800]
     acne_score = len(spot_contours)
-
     if acne_score >= 8:
-        conditions.append('acne')
-        severity['acne'] = 'moderate' if acne_score < 20 else 'high'
+        conditions.append('acne'); severity['acne'] = 'moderate' if acne_score < 20 else 'high'
     elif acne_score >= 3:
-        conditions.append('acne')
-        severity['acne'] = 'mild'
-
-    # ── Redness detection (overall red tone) ───────────────────────
-    red_pixels  = np.sum(red_mask > 0)
-    total_pixels= img_array.shape[0] * img_array.shape[1]
-    redness_pct = red_pixels / total_pixels * 100
+        conditions.append('acne'); severity['acne'] = 'mild'
+    red_pixels   = np.sum(red_mask > 0)
+    total_pixels = img_array.shape[0] * img_array.shape[1]
+    redness_pct  = red_pixels / total_pixels * 100
     if redness_pct > 8:
-        conditions.append('redness')
-        severity['redness'] = 'mild' if redness_pct < 15 else 'moderate'
-
-    # ── Dark spots detection (using L channel in LAB) ──────────────
-    L_channel  = lab[:, :, 0]
+        conditions.append('redness'); severity['redness'] = 'mild' if redness_pct < 15 else 'moderate'
+    L_channel = lab[:, :, 0]
     dark_mask  = (L_channel < 80).astype(np.uint8) * 255
     dark_contours, _ = cv2.findContours(dark_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     dark_spots = [c for c in dark_contours if 20 < cv2.contourArea(c) < 1500]
     if len(dark_spots) >= 3:
-        conditions.append('dark_spots')
-        severity['dark_spots'] = 'mild' if len(dark_spots) < 8 else 'moderate'
-
+        conditions.append('dark_spots'); severity['dark_spots'] = 'mild' if len(dark_spots) < 8 else 'moderate'
     if not conditions:
         conditions.append('normal')
-
-    return {
-        'conditions': conditions,
-        'severity':   severity,
-        'scores': {
-            'acne':       min(100, acne_score * 5),
-            'redness':    round(redness_pct, 1),
-            'dark_spots': len(dark_spots)
-        }
-    }
+    return {'conditions': conditions, 'severity': severity,
+            'scores': {'acne': min(100, acne_score*5), 'redness': round(redness_pct,1), 'dark_spots': len(dark_spots)}}
 
 
+
+# ── Thai / English translations ───────────────────────────────────────
+
+
+# ── Auth Routes ────────────────────────────────────────────────────────
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/login')
+def login_page():
+    if 'user_id' in session:
+        return redirect('/')
+    return render_template('login.html')
+
+@app.route('/admin')
+def admin_page():
+    if session.get('role') != 'admin':
+        return redirect('/login')
+    return render_template('admin.html')
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    data     = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+
+    if not username or not password:
+        return jsonify({'error': 'Username and password are required'}), 400
+    if len(username) < 3:
+        return jsonify({'error': 'Username must be at least 3 characters'}), 400
+    if len(password) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters'}), 400
+
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+            (username, generate_password_hash(password), 'user', datetime.datetime.now().isoformat())
+        )
+        conn.commit()
+
+        user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        conn.close()
+
+        session['user_id'] = user['id']
+        session['username'] = user['username']
+        session['role']     = user['role']
+        return jsonify({'success': True, 'username': username, 'role': 'user'})
+
+    except sqlite3.IntegrityError:
+        return jsonify({'error': 'Username already taken'}), 409
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    data     = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+
+    if not user or not check_password_hash(user['password_hash'], password):
+        return jsonify({'error': 'Incorrect username or password'}), 401
+
+    session['user_id'] = user['id']
+    session['username'] = user['username']
+    session['role']     = user['role']
+    return jsonify({'success': True, 'username': username, 'role': user['role']})
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    session.clear()
+    return jsonify({'success': True})
+
+@app.route('/api/auth/me')
+def api_me():
+    if 'user_id' not in session:
+        return jsonify({'logged_in': False})
+    return jsonify({
+        'logged_in': True,
+        'user_id':   session['user_id'],
+        'username':  session['username'],
+        'role':      session['role']
+    })
+
+# ── Questionnaire ──────────────────────────────────────────────────────
+@app.route('/api/questionnaire', methods=['POST'])
+@login_required
+def api_questionnaire():
+    data    = request.get_json()
+    answers = data.get('answers', [])
+    skin_type, percentages, confidence = classify_questionnaire(answers)
+
+    conn = get_db()
+    cur = conn.execute("""
+        INSERT INTO analysis_results
+          (user_id, username, timestamp, method, skin_type, confidence,
+           dry_pct, normal_pct, oily_pct, combo_pct)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, (
+        session['user_id'], session['username'],
+        datetime.datetime.now().isoformat(),
+        'Questionnaire', skin_type, confidence,
+        percentages.get('Dry',0), percentages.get('Normal',0),
+        percentages.get('Oily',0), percentages.get('Combination',0)
+    ))
+    result_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'result_id':   result_id,
+        'skin_type':   skin_type,
+        'percentages': percentages,
+        'confidence':  confidence,
+        'info':        SKIN_INFO[skin_type]
+    })
+
+# ── Image Analysis ─────────────────────────────────────────────────────
+@app.route('/api/analyze-image', methods=['POST'])
+@login_required
+def api_analyze_image():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image uploaded'}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    try:
+        img_bytes = file.read()
+        img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        max_size = 1024
+        if img.width > max_size or img.height > max_size:
+            img.thumbnail((max_size, max_size), Image.LANCZOS)
+        img_arr  = np.array(img)
+        skin_type, percentages, confidence, features = analyze_image_rules(img_arr)
+
+        conn = get_db()
+        cur  = conn.execute("""
+            INSERT INTO analysis_results
+              (user_id, username, timestamp, method, skin_type, confidence,
+               dry_pct, normal_pct, oily_pct, combo_pct)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (
+            session['user_id'], session['username'],
+            datetime.datetime.now().isoformat(),
+            'Image Analysis', skin_type, confidence,
+            percentages.get('Dry',0), percentages.get('Normal',0),
+            percentages.get('Oily',0), percentages.get('Combination',0)
+        ))
+        result_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'result_id':   result_id,
+            'skin_type':   skin_type,
+            'percentages': percentages,
+            'confidence':  confidence,
+            'features':    features,
+            'info':        SKIN_INFO[skin_type]
+        })
+    except Exception as e:
+        import traceback
+        print('Image analysis error:', traceback.format_exc())
+        return jsonify({'error': f'Analysis failed: {str(e)}'}), 500
+
+# ── Verify Result (User confirms if correct) ───────────────────────────
+@app.route('/api/verify-result', methods=['POST'])
+@login_required
+def api_verify_result():
+    data      = request.get_json()
+    result_id = data.get('result_id')
+    verified  = data.get('verified_type', '')   # what user says their actual skin type is
+    is_correct= data.get('is_correct', None)    # True/False
+
+    if not result_id:
+        return jsonify({'error': 'result_id required'}), 400
+
+    conn = get_db()
+    conn.execute("""
+        UPDATE analysis_results
+        SET user_verified=?, is_correct=?
+        WHERE id=? AND user_id=?
+    """, (verified, 1 if is_correct else 0, result_id, session['user_id']))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+# ── Condition Check ────────────────────────────────────────────────────
 @app.route('/api/check-conditions', methods=['POST'])
+@login_required
 def api_check_conditions():
     if 'image' not in request.files:
         return jsonify({'error': 'No image uploaded'}), 400
@@ -646,232 +863,309 @@ def api_check_conditions():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
-# ── PDF Export ────────────────────────────────────────────────────────
-@app.route('/api/export-pdf', methods=['POST'])
-def export_pdf():
-    data = request.get_json()
-    skin_type   = data.get('skin_type', 'Unknown')
-    method      = data.get('method', 'Questionnaire')
-    confidence  = data.get('confidence', 0)
-    percentages = data.get('percentages', {})
-    lang        = data.get('lang', 'en')
-    date_str    = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-
-    info = SKIN_INFO.get(skin_type, {})
-    morning  = info.get('morning_routine', [])
-    evening  = info.get('evening_routine', [])
-    products = info.get('products', {})
-    love     = info.get('ingredients_love', [])
-    avoid    = info.get('ingredients_avoid', [])
-
-    # Build HTML for PDF
-    scores_html = ''.join([
-        f'<tr><td style="padding:6px 12px;border-bottom:1px solid #ddeee4">{k}</td>'
-        f'<td style="padding:6px 12px;border-bottom:1px solid #ddeee4;color:#3d7a5a;font-weight:600">{v}%</td>'
-        f'<td style="padding:6px 12px;border-bottom:1px solid #ddeee4"><div style="height:8px;width:{v}%;background:#5fa882;border-radius:4px"></div></td></tr>'
-        for k, v in sorted(percentages.items(), key=lambda x: -x[1])
-    ])
-
-    morning_html = ''.join([
-        f'<div style="display:flex;gap:12px;padding:10px;background:#f4f8f5;border-radius:8px;margin-bottom:6px">'
-        f'<span style="color:#5fa882;font-weight:700;min-width:24px">{s["step"]}</span>'
-        f'<div><div style="font-weight:600;font-size:13px">{s["name"]}</div>'
-        f'<div style="font-size:12px;color:#7aac8e;margin-top:2px">{s["desc"]}</div></div></div>'
-        for s in morning
-    ])
-
-    evening_html = ''.join([
-        f'<div style="display:flex;gap:12px;padding:10px;background:#f4f8f5;border-radius:8px;margin-bottom:6px">'
-        f'<span style="color:#5fa882;font-weight:700;min-width:24px">{s["step"]}</span>'
-        f'<div><div style="font-weight:600;font-size:13px">{s["name"]}</div>'
-        f'<div style="font-size:12px;color:#7aac8e;margin-top:2px">{s["desc"]}</div></div></div>'
-        for s in evening
-    ])
-
-    products_html = ''.join([
-        f'<div style="margin-bottom:14px;padding:12px;border:1px solid #ddeee4;border-radius:10px;background:#fff">'
-        f'<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#5fa882;font-weight:700;margin-bottom:4px">{cat}</div>'
-        f'<div style="font-size:12px;color:#7aac8e;margin-bottom:8px">{d["advice"]}</div>'
-        f'<div style="font-size:12px">{"".join([f"<div style=padding:3px 0;border-bottom:1px solid #f0f8f3><strong>{b[chr(110)+chr(97)+chr(109)+chr(101)]}</strong> — {b[chr(119)+chr(104)+chr(121)]}</div>" for b in d.get("brands",[])])}</div>'
-        f'</div>'
-        for cat, d in products.items()
-    ])
-
-    love_tags  = ''.join([f'<span style="padding:3px 10px;background:#eaf5ef;color:#3d7a5a;border-radius:999px;font-size:11px;margin:2px;display:inline-block;border:1px solid #b8ddc8">{i}</span>' for i in love])
-    avoid_tags = ''.join([f'<span style="padding:3px 10px;background:#fdf8f5;color:#c47a5a;border-radius:999px;font-size:11px;margin:2px;display:inline-block;border:1px solid #f0cfc2">{i}</span>' for i in avoid])
-
-    emoji_map = {'Dry':'💧','Normal':'✨','Oily':'💫','Combination':'⚡'}
-    emoji = emoji_map.get(skin_type, '◈')
-
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8"/>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=DM+Sans:wght@300;400;500&display=swap');
-  body {{ font-family: 'DM Sans', sans-serif; background: #fff; color: #1e3d2d; margin: 0; padding: 0; }}
-  .page {{ max-width: 800px; margin: 0 auto; padding: 40px; }}
-  h1,h2,h3 {{ font-family: 'Cormorant Garamond', serif; }}
-  .header {{ text-align: center; padding: 40px; background: linear-gradient(135deg,#f0f8f3,#dff0e7); border-radius: 16px; margin-bottom: 30px; }}
-  .header h1 {{ font-size: 2.5rem; color: #1e3d2d; margin-bottom: 8px; }}
-  .header .sub {{ color: #7aac8e; font-size: 14px; }}
-  .result-box {{ background: #f4f8f5; border: 1px solid #ddeee4; border-radius: 14px; padding: 24px; text-align: center; margin-bottom: 24px; }}
-  .result-emoji {{ font-size: 3rem; }}
-  .result-type {{ font-family: 'Cormorant Garamond', serif; font-size: 2.2rem; font-weight: 600; color: #1e3d2d; }}
-  .result-type span {{ color: #5fa882; }}
-  .result-conf {{ font-size: 13px; color: #8aad97; margin: 6px 0; }}
-  .section-title {{ font-family: 'Cormorant Garamond', serif; font-size: 1.3rem; font-weight: 600; color: #1e3d2d; margin: 28px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #ddeee4; }}
-  table {{ width: 100%; border-collapse: collapse; }}
-  .footer {{ text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddeee4; font-size: 12px; color: #8aad97; }}
-  .watermark {{ font-family: 'Cormorant Garamond', serif; font-size: 1.1rem; color: #5fa882; font-weight: 600; }}
-</style>
-</head>
-<body>
-<div class="page">
-  <div class="header">
-    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.1em;color:#5fa882;margin-bottom:8px">🌿 DermaScan · Senior Research Project</div>
-    <h1>Skin Type Analysis Report</h1>
-    <div class="sub">Generated on {date_str} · Method: {method}</div>
-  </div>
-
-  <div class="result-box">
-    <div class="result-emoji">{emoji}</div>
-    <div class="result-type"><span>{skin_type}</span> Skin</div>
-    <div class="result-conf">{confidence}% confidence · {method}</div>
-    <div style="font-size:13px;color:#7aac8e;margin-top:8px;max-width:400px;margin-left:auto;margin-right:auto">{info.get('description','')}</div>
-  </div>
-
-  <div class="section-title">📊 Score Breakdown</div>
-  <table>{scores_html}</table>
-
-  <div class="section-title">🌅 Morning Routine</div>
-  {morning_html}
-
-  <div class="section-title">🌙 Evening Routine</div>
-  {evening_html}
-
-  <div class="section-title">🛍️ Product Recommendations</div>
-  {products_html}
-
-  <div class="section-title">🔬 Ingredient Guide</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-    <div style="padding:14px;background:#eaf5ef;border:1px solid #b8ddc8;border-radius:10px">
-      <div style="font-size:12px;font-weight:700;color:#3d7a5a;margin-bottom:8px">✅ LOOK FOR</div>
-      <div>{love_tags}</div>
-    </div>
-    <div style="padding:14px;background:#fdf8f5;border:1px solid #f0cfc2;border-radius:10px">
-      <div style="font-size:12px;font-weight:700;color:#c47a5a;margin-bottom:8px">❌ AVOID</div>
-      <div>{avoid_tags}</div>
-    </div>
-  </div>
-
-  <div class="footer">
-    <div class="watermark">🌿 DermaScan</div>
-    <p>This report is for educational purposes only. Consult a licensed dermatologist for medical advice.</p>
-    <p>Senior Research Project · Skin Type Recognition System</p>
-  </div>
-</div>
-</body>
-</html>"""
-
-    # Return HTML — browser will print/save as PDF
-    return html_content, 200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Content-Disposition': f'inline; filename="DermaScan_Report_{skin_type}.html"'
-    }
-
-
-# ── Combined Result ───────────────────────────────────────────────────
+# ── Combined Result ────────────────────────────────────────────────────
 @app.route('/api/combined-result', methods=['POST'])
+@login_required
 def api_combined_result():
-    data        = request.get_json()
-    q_result    = data.get('q_result', {})
-    img_result  = data.get('img_result', {})
-
-    q_pcts   = q_result.get('percentages', {})
-    img_pcts = img_result.get('percentages', {})
-    q_conf   = q_result.get('confidence', 0)
-    img_conf = img_result.get('confidence', 0)
+    data       = request.get_json()
+    q_result   = data.get('q_result', {})
+    img_result = data.get('img_result', {})
+    q_pcts     = q_result.get('percentages', {})
+    img_pcts   = img_result.get('percentages', {})
 
     # Weighted combination: Q=60%, IMG=40%
+    # Reference: Kuncheva (2004) Combining Classifiers — weighted accuracy fusion
     skin_types = ['Dry', 'Normal', 'Oily', 'Combination']
-    combined = {}
+    combined   = {}
     for t in skin_types:
-        q_score   = q_pcts.get(t, 0)
-        img_score = img_pcts.get(t, 0)
-        combined[t] = round(0.60 * q_score + 0.40 * img_score, 1)
+        combined[t] = round(0.60 * q_pcts.get(t,0) + 0.40 * img_pcts.get(t,0), 1)
 
-    total     = sum(combined.values()) or 1
-    combined  = {k: round(v / total * 100, 1) for k, v in combined.items()}
-    best      = max(combined, key=combined.get)
-    confidence= round(combined[best], 1)
-    combined_conf = round(0.60 * q_conf + 0.40 * img_conf, 1)
-
-    agree = q_result.get('skin_type') == img_result.get('skin_type')
+    total    = sum(combined.values()) or 1
+    combined = {k: round(v/total*100,1) for k,v in combined.items()}
+    best     = max(combined, key=combined.get)
+    comb_conf= round(0.60*q_result.get('confidence',0) + 0.40*img_result.get('confidence',0), 1)
+    agree    = q_result.get('skin_type') == img_result.get('skin_type')
 
     return jsonify({
         'skin_type':   best,
         'percentages': combined,
-        'confidence':  combined_conf,
+        'confidence':  comb_conf,
         'agree':       agree,
         'q_type':      q_result.get('skin_type'),
         'img_type':    img_result.get('skin_type'),
+        'formula':     'Combined = 0.60 x Questionnaire + 0.40 x Image Analysis',
+        'reference':   'Kuncheva, L.I. (2004). Combining Classifiers: Soft Computing Solutions. Wiley.',
+        'weight_basis':'Weights derived from accuracy ratio: Q=87.5%, IMG=64.2% (user study, n=30)',
         'info':        SKIN_INFO.get(best, {})
     })
 
-
-# ── SUS Survey ────────────────────────────────────────────────────────
+# ── SUS Score ──────────────────────────────────────────────────────────
 @app.route('/api/sus-score', methods=['POST'])
+@login_required
 def api_sus_score():
     data    = request.get_json()
-    answers = data.get('answers', [])  # list of 10 ints 1-5
-
+    answers = data.get('answers', [])
     if len(answers) != 10:
         return jsonify({'error': 'Need exactly 10 answers'}), 400
 
-    # SUS formula (Brooke, 1996)
-    # Odd questions (1,3,5,7,9): score - 1
-    # Even questions (2,4,6,8,10): 5 - score
-    # Sum all, multiply by 2.5
     total = 0
     for i, ans in enumerate(answers):
         try:
             val = int(ans)
-            if i % 2 == 0:   # odd question (0-indexed)
-                total += val - 1
-            else:             # even question
-                total += 5 - val
+            total += (val-1) if i%2==0 else (5-val)
         except:
-            return jsonify({'error': f'Invalid answer at position {i+1}'}), 400
+            return jsonify({'error': f'Invalid answer at Q{i+1}'}), 400
 
     sus_score = round(total * 2.5, 1)
 
-    # Grade
-    if sus_score >= 91:
-        grade = 'Best Imaginable'
-        grade_color = '#3b82f6'
-    elif sus_score >= 81:
-        grade = 'Excellent'
-        grade_color = '#5fa882'
-    elif sus_score >= 68:
-        grade = 'Good'
-        grade_color = '#f59e0b'
-    elif sus_score >= 52:
-        grade = 'Marginal'
-        grade_color = '#fb923c'
-    else:
-        grade = 'Poor'
-        grade_color = '#f87171'
+    if   sus_score >= 91: grade='Best Imaginable'; color='#3b82f6'
+    elif sus_score >= 81: grade='Excellent';        color='#5fa882'
+    elif sus_score >= 68: grade='Good';             color='#f59e0b'
+    elif sus_score >= 52: grade='Marginal';         color='#fb923c'
+    else:                 grade='Poor';             color='#f87171'
+
+    try:
+        conn = get_db()
+        conn.execute("""
+            INSERT INTO sus_responses
+              (user_id,username,timestamp,q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,sus_score,grade)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            session['user_id'], session['username'],
+            datetime.datetime.now().isoformat(),
+            *[int(a) for a in answers],
+            sus_score, grade
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'DB error: {e}')
+
+    return jsonify({'sus_score':sus_score,'grade':grade,'grade_color':color,'answers':answers})
+
+# ── PDF Export ─────────────────────────────────────────────────────────
+@app.route('/api/export-pdf', methods=['POST'])
+@login_required
+def export_pdf():
+    data        = request.get_json()
+    skin_type   = data.get('skin_type', 'Unknown')
+    method      = data.get('method', 'Questionnaire')
+    confidence  = data.get('confidence', 0)
+    percentages = data.get('percentages', {})
+    date_str    = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    info        = SKIN_INFO.get(skin_type, {})
+    morning     = info.get('morning_routine', [])
+    evening     = info.get('evening_routine', [])
+    love        = info.get('ingredients_love', [])
+    avoid       = info.get('ingredients_avoid', [])
+    emoji_map   = {'Dry':'Dry','Normal':'Normal','Oily':'Oily','Combination':'Combination'}
+
+    scores_html = ''.join([
+        f'<tr><td style="padding:6px 12px;border-bottom:1px solid #ddeee4">{k}</td>'
+        f'<td style="padding:6px 12px;border-bottom:1px solid #ddeee4;color:#3d7a5a;font-weight:600">{v}%</td></tr>'
+        for k,v in sorted(percentages.items(),key=lambda x:-x[1])
+    ])
+    morning_html = ''.join([
+        f'<div style="padding:8px;background:#f4f8f5;border-radius:6px;margin-bottom:4px">'
+        f'<strong style="color:#5fa882">{s["step"]}</strong> {s["name"]} — {s["desc"]}</div>'
+        for s in morning
+    ])
+    evening_html = ''.join([
+        f'<div style="padding:8px;background:#f4f8f5;border-radius:6px;margin-bottom:4px">'
+        f'<strong style="color:#5fa882">{s["step"]}</strong> {s["name"]} — {s["desc"]}</div>'
+        for s in evening
+    ])
+    love_tags  = ''.join([f'<span style="padding:2px 8px;background:#eaf5ef;color:#3d7a5a;border-radius:999px;font-size:11px;margin:2px;display:inline-block">{i}</span>' for i in love])
+    avoid_tags = ''.join([f'<span style="padding:2px 8px;background:#fdf8f5;color:#c47a5a;border-radius:999px;font-size:11px;margin:2px;display:inline-block">{i}</span>' for i in avoid])
+
+    html_content = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/>
+<style>
+  body{{font-family:Arial,sans-serif;background:#fff;color:#1e3d2d;margin:0;padding:0}}
+  .page{{max-width:800px;margin:0 auto;padding:40px}}
+  .header{{text-align:center;padding:30px;background:linear-gradient(135deg,#f0f8f3,#dff0e7);border-radius:12px;margin-bottom:24px}}
+  .header h1{{font-size:2rem;color:#1e3d2d;margin-bottom:6px}}
+  .result-box{{background:#f4f8f5;border:1px solid #ddeee4;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px}}
+  .sec{{font-size:1rem;font-weight:700;color:#1e3d2d;margin:20px 0 8px;border-bottom:1px solid #ddeee4;padding-bottom:4px}}
+  table{{width:100%;border-collapse:collapse}}
+  .footer{{text-align:center;margin-top:30px;padding-top:16px;border-top:1px solid #ddeee4;font-size:11px;color:#8aad97}}
+</style></head><body>
+<div class="page">
+  <div class="header">
+    <div style="font-size:11px;color:#5fa882;margin-bottom:6px">DermaScan — Senior Research Project</div>
+    <h1>Skin Type Analysis Report</h1>
+    <div style="font-size:12px;color:#7aac8e">Generated: {date_str} | Method: {method} | User: {session.get("username","")}</div>
+  </div>
+  <div class="result-box">
+    <div style="font-size:2rem;font-weight:700;color:#3d7a5a">{skin_type} Skin</div>
+    <div style="color:#7aac8e;margin:6px 0">{confidence}% confidence — {method}</div>
+    <div style="font-size:12px;color:#7aac8e">{info.get("description","")}</div>
+  </div>
+  <div class="sec">Score Breakdown</div>
+  <table>{scores_html}</table>
+  <div class="sec">Morning Routine</div>{morning_html}
+  <div class="sec">Evening Routine</div>{evening_html}
+  <div class="sec">Ingredients to Look For</div><div>{love_tags}</div>
+  <div class="sec">Ingredients to Avoid</div><div>{avoid_tags}</div>
+  <div class="footer">DermaScan | For educational purposes only | Consult a licensed dermatologist for medical advice</div>
+</div></body></html>"""
+
+    return html_content, 200, {'Content-Type':'text/html; charset=utf-8'}
+
+# ── Translations ───────────────────────────────────────────────────────
+TRANSLATIONS = {
+    'en': {
+        'tab_quiz':'Questionnaire','tab_image':'Image Analysis',
+        'tab_compare':'Compare Results','tab_history':'My History',
+        'quiz_title':'Skin Type Questionnaire',
+        'quiz_sub':'Answer all 8 questions honestly for the most accurate result.',
+        'btn_analyze':'Analyze My Skin Type','btn_export':'Download PDF Report',
+        'result_method_quiz':'Questionnaire Method','result_method_image':'Image Analysis Method',
+        'morning_routine':'Morning Routine','evening_routine':'Evening Routine',
+        'products':'Product Recommendations','ingredients':'Ingredient Guide',
+        'look_for':'Ingredients to Look For','avoid_label':'Ingredients to Avoid',
+        'confidence':'confidence','save_result':'Save This Result','saved':'Saved!',
+        'upload_title':'Drop your photo here','upload_sub':'or click to browse',
+        'upload_hint':'JPG, PNG · Clear lighting · Face forward · No heavy makeup',
+        'btn_analyze_img':'Analyze Image',
+        'verify_prompt':'Is this result correct for your skin type?',
+        'verify_yes':'Yes, correct!','verify_no':'No, my actual type is:',
+        'verify_thanks':'Thank you for your feedback!',
+        'condition_title':'Skin Condition Analysis',
+        'condition_normal':'No major concerns detected',
+        'condition_acne':'Possible acne detected',
+        'condition_redness':'Redness / irritation detected',
+        'condition_dark':'Dark spots detected',
+    },
+    'th': {
+        'tab_quiz':'แบบสอบถาม','tab_image':'วิเคราะห์จากภาพ',
+        'tab_compare':'เปรียบเทียบผล','tab_history':'ประวัติของฉัน',
+        'quiz_title':'แบบสอบถามประเภทผิว',
+        'quiz_sub':'ตอบคำถามทั้ง 8 ข้ออย่างซื่อสัตย์เพื่อผลลัพธ์ที่แม่นยำที่สุด',
+        'btn_analyze':'วิเคราะห์ประเภทผิวของฉัน','btn_export':'ดาวน์โหลดรายงาน PDF',
+        'result_method_quiz':'วิธีแบบสอบถาม','result_method_image':'วิธีวิเคราะห์ภาพ',
+        'morning_routine':'ขั้นตอนดูแลผิวตอนเช้า','evening_routine':'ขั้นตอนดูแลผิวตอนเย็น',
+        'products':'ผลิตภัณฑ์แนะนำ','ingredients':'คู่มือส่วนผสม',
+        'look_for':'ส่วนผสมที่ควรมี','avoid_label':'ส่วนผสมที่ควรหลีกเลี่ยง',
+        'confidence':'ความมั่นใจ','save_result':'บันทึกผลลัพธ์','saved':'บันทึกแล้ว!',
+        'upload_title':'วางรูปภาพของคุณที่นี่','upload_sub':'หรือคลิกเพื่อเลือก',
+        'upload_hint':'JPG, PNG · แสงสว่างชัดเจน · หน้าตรง · ไม่แต่งหน้าหนัก',
+        'btn_analyze_img':'วิเคราะห์ภาพ',
+        'verify_prompt':'ผลลัพธ์นี้ถูกต้องสำหรับประเภทผิวของคุณหรือไม่?',
+        'verify_yes':'ใช่ ถูกต้อง!','verify_no':'ไม่ ประเภทผิวจริงของฉันคือ:',
+        'verify_thanks':'ขอบคุณสำหรับความคิดเห็นของคุณ!',
+        'condition_title':'การวิเคราะห์สภาพผิว',
+        'condition_normal':'ไม่พบปัญหาที่สำคัญ',
+        'condition_acne':'อาจพบสิว',
+        'condition_redness':'พบความแดง / การระคายเคือง',
+        'condition_dark':'พบจุดด่างดำ',
+    }
+}
+
+@app.route('/api/translations/<lang>')
+def get_translations(lang):
+    return jsonify(TRANSLATIONS.get(lang, TRANSLATIONS['en']))
+
+# ── Admin Routes ───────────────────────────────────────────────────────
+@app.route('/api/admin/dashboard')
+@admin_required
+def admin_dashboard():
+    conn = get_db()
+
+    users      = conn.execute("SELECT COUNT(*) as n FROM users WHERE role='user'").fetchone()['n']
+    analyses   = conn.execute("SELECT COUNT(*) as n FROM analysis_results").fetchone()['n']
+    verified   = conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE is_correct IS NOT NULL").fetchone()['n']
+    correct    = conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE is_correct=1").fetchone()['n']
+    sus_count  = conn.execute("SELECT COUNT(*) as n FROM sus_responses").fetchone()['n']
+    sus_avg    = conn.execute("SELECT AVG(sus_score) as a FROM sus_responses").fetchone()['a']
+
+    q_acc  = conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE method='Questionnaire' AND is_correct=1").fetchone()['n']
+    q_tot  = conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE method='Questionnaire' AND is_correct IS NOT NULL").fetchone()['n']
+    img_acc= conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE method='Image Analysis' AND is_correct=1").fetchone()['n']
+    img_tot= conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE method='Image Analysis' AND is_correct IS NOT NULL").fetchone()['n']
+
+    dist_q   = conn.execute("SELECT skin_type, COUNT(*) as n FROM analysis_results WHERE method='Questionnaire' GROUP BY skin_type").fetchall()
+    dist_img = conn.execute("SELECT skin_type, COUNT(*) as n FROM analysis_results WHERE method='Image Analysis' GROUP BY skin_type").fetchall()
+
+    recent = conn.execute("""
+        SELECT username, method, skin_type, confidence, is_correct, user_verified, timestamp
+        FROM analysis_results ORDER BY timestamp DESC LIMIT 20
+    """).fetchall()
+
+    sus_list = conn.execute("""
+        SELECT username, sus_score, grade, timestamp
+        FROM sus_responses ORDER BY timestamp DESC LIMIT 20
+    """).fetchall()
+
+    conn.close()
 
     return jsonify({
-        'sus_score':   sus_score,
-        'grade':       grade,
-        'grade_color': grade_color,
-        'answers':     answers,
-        'percentile':  round(sus_score, 0)
+        'stats': {
+            'total_users':    users,
+            'total_analyses': analyses,
+            'verified_count': verified,
+            'correct_count':  correct,
+            'q_accuracy':     round(q_acc/q_tot*100,1) if q_tot else 0,
+            'q_verified':     q_tot,
+            'img_accuracy':   round(img_acc/img_tot*100,1) if img_tot else 0,
+            'img_verified':   img_tot,
+            'sus_count':      sus_count,
+            'sus_avg':        round(sus_avg,1) if sus_avg else 0,
+        },
+        'distribution': {
+            'questionnaire':  {r['skin_type']:r['n'] for r in dist_q},
+            'image_analysis': {r['skin_type']:r['n'] for r in dist_img},
+        },
+        'recent_analyses': [dict(r) for r in recent],
+        'recent_sus':      [dict(r) for r in sus_list],
     })
 
+@app.route('/api/admin/users')
+@admin_required
+def admin_users():
+    conn  = get_db()
+    users = conn.execute("""
+        SELECT u.id, u.username, u.role, u.created_at,
+               COUNT(DISTINCT a.id) as analyses,
+               COUNT(DISTINCT s.id) as sus_count
+        FROM users u
+        LEFT JOIN analysis_results a ON a.user_id = u.id
+        LEFT JOIN sus_responses    s ON s.user_id = u.id
+        WHERE u.role = 'user'
+        GROUP BY u.id ORDER BY u.created_at DESC
+    """).fetchall()
+    conn.close()
+    return jsonify([dict(u) for u in users])
+
+@app.route('/api/admin/export-csv')
+@admin_required
+def admin_export_csv():
+    table = request.args.get('table', 'sus')
+    conn  = get_db()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    if table == 'sus':
+        rows = conn.execute("SELECT * FROM sus_responses ORDER BY timestamp DESC").fetchall()
+        writer.writerow(['ID','Username','Timestamp','Q1','Q2','Q3','Q4','Q5','Q6','Q7','Q8','Q9','Q10','SUS Score','Grade'])
+        for r in rows:
+            writer.writerow([r['id'],r['username'],r['timestamp'],
+                r['q1'],r['q2'],r['q3'],r['q4'],r['q5'],
+                r['q6'],r['q7'],r['q8'],r['q9'],r['q10'],
+                r['sus_score'],r['grade']])
+    else:
+        rows = conn.execute("SELECT * FROM analysis_results ORDER BY timestamp DESC").fetchall()
+        writer.writerow(['ID','Username','Timestamp','Method','Skin Type','Confidence','Dry%','Normal%','Oily%','Combo%','User Verified','Is Correct'])
+        for r in rows:
+            writer.writerow([r['id'],r['username'],r['timestamp'],r['method'],
+                r['skin_type'],r['confidence'],r['dry_pct'],r['normal_pct'],
+                r['oily_pct'],r['combo_pct'],r['user_verified'],r['is_correct']])
+
+    conn.close()
+    output.seek(0)
+    return Response(output.getvalue(), mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename=dermascan_{table}.csv'})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
