@@ -526,6 +526,88 @@ def analyze_image_rules(img_array):
 
 
 
+# ── Page Routes ───────────────────────────────────────────────────────
+@app.route('/')
+def index():
+    if 'user_id' not in session:
+        return redirect('/login')
+    return render_template('index.html')
+
+@app.route('/login')
+def login_page():
+    if 'user_id' in session:
+        return redirect('/')
+    return render_template('login.html')
+
+@app.route('/admin')
+def admin_page():
+    if session.get('role') != 'admin':
+        return redirect('/login')
+    return render_template('admin.html')
+
+
+# ── Auth API Routes ────────────────────────────────────────────────────
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    data     = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    if not username or not password:
+        return jsonify({'error': 'Username and password are required'}), 400
+    if len(username) < 3:
+        return jsonify({'error': 'Username must be at least 3 characters'}), 400
+    if len(password) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters'}), 400
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+            (username, generate_password_hash(password), 'user', datetime.datetime.now().isoformat())
+        )
+        conn.commit()
+        user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        conn.close()
+        session['user_id'] = user['id']
+        session['username'] = user['username']
+        session['role']     = user['role']
+        return jsonify({'success': True, 'username': username, 'role': 'user'})
+    except sqlite3.IntegrityError:
+        return jsonify({'error': 'Username already taken'}), 409
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    data     = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    if not user or not check_password_hash(user['password_hash'], password):
+        return jsonify({'error': 'Incorrect username or password'}), 401
+    session['user_id'] = user['id']
+    session['username'] = user['username']
+    session['role']     = user['role']
+    return jsonify({'success': True, 'username': username, 'role': user['role']})
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    session.clear()
+    return jsonify({'success': True})
+
+@app.route('/api/auth/me')
+def api_me():
+    if 'user_id' not in session:
+        return jsonify({'logged_in': False})
+    return jsonify({
+        'logged_in': True,
+        'user_id':   session['user_id'],
+        'username':  session['username'],
+        'role':      session['role']
+    })
+
+
 @app.route('/api/questionnaire', methods=['POST'])
 @login_required
 def api_questionnaire():
