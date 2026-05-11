@@ -7,7 +7,8 @@ from PIL import Image
 import io
 import json
 import datetime
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import csv
 from collections import Counter
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -17,31 +18,39 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dermascan-secret-2025-xK9pL')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# ── Database ───────────────────────────────────────────────────────────
-DB_PATH = os.path.join(os.path.dirname(__file__), 'dermascan.db')
+# ── Database (PostgreSQL — persistent on Render) ──────────────────────
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL)
     return conn
+
+def db_fetchone(cursor):
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    cols = [d[0] for d in cursor.description]
+    return dict(zip(cols, row))
+
+def db_fetchall(cursor):
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
 def init_db():
     conn = get_db()
-    c = conn.cursor()
-
+    c    = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            username      TEXT    UNIQUE NOT NULL,
-            password_hash TEXT    NOT NULL,
-            role          TEXT    DEFAULT 'user',
-            created_at    TEXT    NOT NULL
+            id            SERIAL PRIMARY KEY,
+            username      TEXT   UNIQUE NOT NULL,
+            password_hash TEXT   NOT NULL,
+            role          TEXT   DEFAULT 'user',
+            created_at    TEXT   NOT NULL
         )
     """)
-
     c.execute("""
         CREATE TABLE IF NOT EXISTS analysis_results (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            id            SERIAL PRIMARY KEY,
             user_id       INTEGER NOT NULL,
             username      TEXT    NOT NULL,
             timestamp     TEXT    NOT NULL,
@@ -53,14 +62,12 @@ def init_db():
             oily_pct      REAL,
             combo_pct     REAL,
             user_verified TEXT,
-            is_correct    INTEGER,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            is_correct    INTEGER
         )
     """)
-
     c.execute("""
         CREATE TABLE IF NOT EXISTS sus_responses (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            id        SERIAL PRIMARY KEY,
             user_id   INTEGER,
             username  TEXT,
             timestamp TEXT NOT NULL,
@@ -70,15 +77,13 @@ def init_db():
             grade     TEXT NOT NULL
         )
     """)
-
     # Create default admin
-    existing = c.execute("SELECT id FROM users WHERE username='admin'").fetchone()
-    if not existing:
+    c.execute("SELECT id FROM users WHERE username=%s", ('admin',))
+    if not c.fetchone():
         c.execute(
-            "INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+            "INSERT INTO users (username, password_hash, role, created_at) VALUES (%s,%s,%s,%s)",
             ('admin', generate_password_hash('admin1234'), 'admin', datetime.datetime.now().isoformat())
         )
-
     conn.commit()
     conn.close()
 
@@ -560,19 +565,22 @@ def api_register():
         return jsonify({'error': 'Password must be at least 6 characters'}), 400
     try:
         conn = get_db()
-        conn.execute(
-            "INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO users (username, password_hash, role, created_at) VALUES (%s,%s,%s,%s)",
             (username, generate_password_hash(password), 'user', datetime.datetime.now().isoformat())
         )
         conn.commit()
-        user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        c.execute("SELECT * FROM users WHERE username=%s", (username,))
+        user = db_fetchone(c)
         conn.close()
         session['user_id'] = user['id']
         session['username'] = user['username']
         session['role']     = user['role']
         return jsonify({'success': True, 'username': username, 'role': 'user'})
-    except sqlite3.IntegrityError:
-        return jsonify({'error': 'Username already taken'}), 409
+    except Exception as dup_err:
+        if 'unique' in str(dup_err).lower() or 'duplicate' in str(dup_err).lower():
+            return jsonify({'error': 'Username already taken'}), 409
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -582,7 +590,9 @@ def api_login():
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
     conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username=%s", (username,))
+    user = db_fetchone(c)
     conn.close()
     if not user or not check_password_hash(user['password_hash'], password):
         return jsonify({'error': 'Incorrect username or password'}), 401
@@ -616,11 +626,13 @@ def api_questionnaire():
     skin_type, percentages, confidence = classify_questionnaire(answers)
 
     conn = get_db()
-    cur = conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         INSERT INTO analysis_results
           (user_id, username, timestamp, method, skin_type, confidence,
            dry_pct, normal_pct, oily_pct, combo_pct)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id
     """, (
         session['user_id'], session['username'],
         datetime.datetime.now().isoformat(),
@@ -628,7 +640,7 @@ def api_questionnaire():
         percentages.get('Dry',0), percentages.get('Normal',0),
         percentages.get('Oily',0), percentages.get('Combination',0)
     ))
-    result_id = cur.lastrowid
+    result_id = cur.fetchone()[0]
     conn.commit()
     conn.close()
 
@@ -659,11 +671,13 @@ def api_analyze_image():
         skin_type, percentages, confidence, features = analyze_image_rules(img_arr)
 
         conn = get_db()
-        cur  = conn.execute("""
+        cur  = conn.cursor()
+        cur.execute("""
             INSERT INTO analysis_results
               (user_id, username, timestamp, method, skin_type, confidence,
                dry_pct, normal_pct, oily_pct, combo_pct)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
         """, (
             session['user_id'], session['username'],
             datetime.datetime.now().isoformat(),
@@ -671,7 +685,7 @@ def api_analyze_image():
             percentages.get('Dry',0), percentages.get('Normal',0),
             percentages.get('Oily',0), percentages.get('Combination',0)
         ))
-        result_id = cur.lastrowid
+        result_id = cur.fetchone()[0]
         conn.commit()
         conn.close()
 
@@ -701,11 +715,11 @@ def api_verify_result():
         return jsonify({'error': 'result_id required'}), 400
 
     conn = get_db()
-    conn.execute("""
-        UPDATE analysis_results
-        SET user_verified=?, is_correct=?
-        WHERE id=? AND user_id=?
-    """, (verified, 1 if is_correct else 0, result_id, session['user_id']))
+    c = conn.cursor()
+    c.execute(
+        "UPDATE analysis_results SET user_verified=%s, is_correct=%s WHERE id=%s AND user_id=%s",
+        (verified, 1 if is_correct else 0, result_id, session['user_id'])
+    )
     conn.commit()
     conn.close()
     return jsonify({'success': True})
@@ -792,10 +806,11 @@ def api_sus_score():
 
     try:
         conn = get_db()
-        conn.execute("""
+        c2   = conn.cursor()
+        c2.execute("""
             INSERT INTO sus_responses
               (user_id,username,timestamp,q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,sus_score,grade)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             session['user_id'], session['username'],
             datetime.datetime.now().isoformat(),
@@ -937,31 +952,42 @@ def get_translations(lang):
 @admin_required
 def admin_dashboard():
     conn = get_db()
+    c    = conn.cursor()
 
-    users      = conn.execute("SELECT COUNT(*) as n FROM users WHERE role='user'").fetchone()['n']
-    analyses   = conn.execute("SELECT COUNT(*) as n FROM analysis_results").fetchone()['n']
-    verified   = conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE is_correct IS NOT NULL").fetchone()['n']
-    correct    = conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE is_correct=1").fetchone()['n']
-    sus_count  = conn.execute("SELECT COUNT(*) as n FROM sus_responses").fetchone()['n']
-    sus_avg    = conn.execute("SELECT AVG(sus_score) as a FROM sus_responses").fetchone()['a']
+    def qval(sql, params=()):
+        c.execute(sql, params)
+        row = c.fetchone()
+        return row[0] if row else 0
 
-    q_acc  = conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE method='Questionnaire' AND is_correct=1").fetchone()['n']
-    q_tot  = conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE method='Questionnaire' AND is_correct IS NOT NULL").fetchone()['n']
-    img_acc= conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE method='Image Analysis' AND is_correct=1").fetchone()['n']
-    img_tot= conn.execute("SELECT COUNT(*) as n FROM analysis_results WHERE method='Image Analysis' AND is_correct IS NOT NULL").fetchone()['n']
+    users     = qval("SELECT COUNT(*) FROM users WHERE role='user'")
+    analyses  = qval("SELECT COUNT(*) FROM analysis_results")
+    verified  = qval("SELECT COUNT(*) FROM analysis_results WHERE is_correct IS NOT NULL")
+    correct   = qval("SELECT COUNT(*) FROM analysis_results WHERE is_correct=1")
+    sus_count = qval("SELECT COUNT(*) FROM sus_responses")
+    c.execute("SELECT AVG(sus_score) FROM sus_responses")
+    sus_avg   = c.fetchone()[0]
 
-    dist_q   = conn.execute("SELECT skin_type, COUNT(*) as n FROM analysis_results WHERE method='Questionnaire' GROUP BY skin_type").fetchall()
-    dist_img = conn.execute("SELECT skin_type, COUNT(*) as n FROM analysis_results WHERE method='Image Analysis' GROUP BY skin_type").fetchall()
+    q_acc  = qval("SELECT COUNT(*) FROM analysis_results WHERE method='Questionnaire' AND is_correct=1")
+    q_tot  = qval("SELECT COUNT(*) FROM analysis_results WHERE method='Questionnaire' AND is_correct IS NOT NULL")
+    img_acc= qval("SELECT COUNT(*) FROM analysis_results WHERE method='Image Analysis' AND is_correct=1")
+    img_tot= qval("SELECT COUNT(*) FROM analysis_results WHERE method='Image Analysis' AND is_correct IS NOT NULL")
 
-    recent = conn.execute("""
+    c.execute("SELECT skin_type, COUNT(*) as n FROM analysis_results WHERE method='Questionnaire' GROUP BY skin_type")
+    dist_q   = db_fetchall(c)
+    c.execute("SELECT skin_type, COUNT(*) as n FROM analysis_results WHERE method='Image Analysis' GROUP BY skin_type")
+    dist_img = db_fetchall(c)
+
+    c.execute("""
         SELECT username, method, skin_type, confidence, is_correct, user_verified, timestamp
         FROM analysis_results ORDER BY timestamp DESC LIMIT 20
-    """).fetchall()
+    """)
+    recent = db_fetchall(c)
 
-    sus_list = conn.execute("""
+    c.execute("""
         SELECT username, sus_score, grade, timestamp
         FROM sus_responses ORDER BY timestamp DESC LIMIT 20
-    """).fetchall()
+    """)
+    sus_list = db_fetchall(c)
 
     conn.close()
 
@@ -989,8 +1015,9 @@ def admin_dashboard():
 @app.route('/api/admin/users')
 @admin_required
 def admin_users():
-    conn  = get_db()
-    users = conn.execute("""
+    conn = get_db()
+    c    = conn.cursor()
+    c.execute("""
         SELECT u.id, u.username, u.role, u.created_at,
                COUNT(DISTINCT a.id) as analyses,
                COUNT(DISTINCT s.id) as sus_count
@@ -999,9 +1026,10 @@ def admin_users():
         LEFT JOIN sus_responses    s ON s.user_id = u.id
         WHERE u.role = 'user'
         GROUP BY u.id ORDER BY u.created_at DESC
-    """).fetchall()
+    """)
+    users = db_fetchall(c)
     conn.close()
-    return jsonify([dict(u) for u in users])
+    return jsonify(users)
 
 @app.route('/api/admin/export-csv')
 @admin_required
@@ -1013,7 +1041,9 @@ def admin_export_csv():
     writer = csv.writer(output)
 
     if table == 'sus':
-        rows = conn.execute("SELECT * FROM sus_responses ORDER BY timestamp DESC").fetchall()
+        c = conn.cursor()
+        c.execute("SELECT * FROM sus_responses ORDER BY timestamp DESC")
+        rows = db_fetchall(c)
         writer.writerow(['ID','Username','Timestamp','Q1','Q2','Q3','Q4','Q5','Q6','Q7','Q8','Q9','Q10','SUS Score','Grade'])
         for r in rows:
             writer.writerow([r['id'],r['username'],r['timestamp'],
@@ -1021,7 +1051,9 @@ def admin_export_csv():
                 r['q6'],r['q7'],r['q8'],r['q9'],r['q10'],
                 r['sus_score'],r['grade']])
     else:
-        rows = conn.execute("SELECT * FROM analysis_results ORDER BY timestamp DESC").fetchall()
+        c = conn.cursor()
+        c.execute("SELECT * FROM analysis_results ORDER BY timestamp DESC")
+        rows = db_fetchall(c)
         writer.writerow(['ID','Username','Timestamp','Method','Skin Type','Confidence','Dry%','Normal%','Oily%','Combo%','User Verified','Is Correct'])
         for r in rows:
             writer.writerow([r['id'],r['username'],r['timestamp'],r['method'],
