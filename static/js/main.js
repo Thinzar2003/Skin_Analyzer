@@ -21,45 +21,44 @@ async function loadTranslations(lang) {
   } catch(e) { console.error('Translation load failed', e); }
 }
 
+// English originals for radio values (scoring always uses English)
+const RADIO_VALUES = {
+  'q1a1':'Very tight and uncomfortable','q1a2':'Slightly tight',
+  'q1a3':'Comfortable and balanced','q1a4':'Fine, no particular feeling',
+  'q2a1':'Very shiny all over','q2a2':'Shiny only on T-zone',
+  'q2a3':'Same as morning','q2a4':'Feels drier and tighter',
+  'q3a1':'Frequently, all over face','q3a2':'Occasionally, mainly T-zone',
+  'q3a3':'Rarely','q3a4':'Almost never, but skin is flaky',
+  'q4a1':'Very dry, flaky or itchy','q4a2':'Slightly dry in some areas',
+  'q4a3':'Normal, no issues','q4a4':'Gets oily quickly',
+  'q5a1':'Large and visible especially on nose','q5a2':'Visible only on T-zone',
+  'q5a3':'Small and barely visible','q5a4':'Very small, skin looks tight',
+  'q6a1':'Often irritated or red','q6a2':'Sometimes breaks out',
+  'q6a3':'Rarely reacts','q6a4':'Absorbs quickly, needs more',
+  'q7a1':'Rough, flaky or tight','q7a2':'Smooth some areas, oily others',
+  'q7a3':'Smooth and balanced overall','q7a4':'Consistently shiny and greasy',
+  'q8a1':'Lots of oil all over','q8a2':'Oil mainly from T-zone',
+  'q8a3':'Very little oil','q8a4':'Almost nothing, skin is dry',
+};
+
 function applyTranslations() {
   const t = state.t;
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.dataset.i18n;
     if (!t[key]) return;
 
-    // For button elements preserve inner HTML structure
-    if (el.tagName === 'BUTTON' && el.querySelector('strong')) return;
+    // Save original English text on first run
+    if (!el.dataset.en) el.dataset.en = el.textContent.trim();
 
-    // Update text
+    // Update display text
     el.textContent = t[key];
 
-    // For radio option spans — also update the parent label's input value
-    // so questionnaire mapping still works
+    // Always keep radio input value in English for scoring
     const label = el.closest('label.option');
     if (label) {
       const input = label.querySelector('input[type=radio]');
-      if (input) {
-        // Map Thai key back to English value for scoring
-        const engMap = {
-          'q1a1':'Very tight and uncomfortable','q1a2':'Slightly tight',
-          'q1a3':'Comfortable and balanced','q1a4':'Fine, no particular feeling',
-          'q2a1':'Very shiny all over','q2a2':'Shiny only on T-zone',
-          'q2a3':'Same as morning','q2a4':'Feels drier and tighter',
-          'q3a1':'Frequently, all over face','q3a2':'Occasionally, mainly T-zone',
-          'q3a3':'Rarely','q3a4':'Almost never, but skin is flaky',
-          'q4a1':'Very dry, flaky or itchy','q4a2':'Slightly dry in some areas',
-          'q4a3':'Normal, no issues','q4a4':'Gets oily quickly',
-          'q5a1':'Large and visible especially on nose','q5a2':'Visible only on T-zone',
-          'q5a3':'Small and barely visible','q5a4':'Very small, skin looks tight',
-          'q6a1':'Often irritated or red','q6a2':'Sometimes breaks out',
-          'q6a3':'Rarely reacts','q6a4':'Absorbs quickly, needs more',
-          'q7a1':'Rough, flaky or tight','q7a2':'Smooth some areas, oily others',
-          'q7a3':'Smooth and balanced overall','q7a4':'Consistently shiny and greasy',
-          'q8a1':'Lots of oil all over','q8a2':'Oil mainly from T-zone',
-          'q8a3':'Very little oil','q8a4':'Almost nothing, skin is dry',
-        };
-        // Keep English value so MAPPINGS scoring always works
-        if (engMap[key]) input.value = engMap[key];
+      if (input && RADIO_VALUES[key]) {
+        input.value = RADIO_VALUES[key];
       }
     }
   });
@@ -67,14 +66,25 @@ function applyTranslations() {
 }
 
 function initLang() {
+  // Restore saved language preference
+  const savedLang = localStorage.getItem('dermascan_lang') || 'en';
+  state.lang = savedLang;
+  document.querySelectorAll('.lang-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.lang === savedLang)
+  );
+
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       state.lang = btn.dataset.lang;
-      document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === state.lang));
+      localStorage.setItem('dermascan_lang', state.lang);
+      document.querySelectorAll('.lang-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.lang === state.lang)
+      );
       await loadTranslations(state.lang);
     });
   });
-  loadTranslations('en');
+
+  loadTranslations(savedLang);
 }
 
 // ── Scroll ─────────────────────────────────────────────────────────────
