@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DermaScan — Skin Type Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-brand">DermaScan</div>
+  <div class="nav-links">
+    <a href="#" class="nav-link active" data-tab="questionnaire" data-i18n="tab_quiz">Quiz</a>
+    <a href="#" class="nav-link" data-tab="image" data-i18n="tab_image">Image</a>
+    <a href="#" class="nav-link" data-tab="compare" data-i18n="tab_compare">Compare</a>
+    <a href="#" class="nav-link" data-tab="history" data-i18n="tab_history">History</a>
+    <a href="#" class="nav-link" data-tab="sus">⭐ Rate</a>
+  </div>
+  <div class="lang-switch">
+    <button class="lang-btn active" data-lang="en">EN</button>
+    <span class="lang-sep">|</span>
+    <button class="lang-btn" data-lang="th">TH</button>
+  </div>
+  <div class="user-bar" id="user-bar" style="display:none">
+    <span class="user-greeting" id="user-greeting"></span>
+    <button class="logout-link" onclick="doLogout()">Logout</button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+  <div class="hero-content">
+    <div class="hero-badge" data-i18n="hero_badge">🌿 Senior Research Project</div>
+    <h1 class="hero-title" data-i18n="hero_title">Know Your <em>Skin Type</em></h1>
+    <p class="hero-sub" data-i18n="hero_sub">Dual-method analysis combining dermatologist-validated questionnaire with AI-powered image recognition.</p>
+    <div class="hero-stats">
+      <div class="stat"><span class="stat-num">4</span><span class="stat-label">Skin Types</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat"><span class="stat-num">8</span><span class="stat-label">Questions</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat"><span class="stat-num">2</span><span class="stat-label">Methods</span></div>
+    </div>
+    <a href="#tabs-section" class="btn-primary" onclick="scrollToTabs()">Start Analysis →</a>
+  </div>
+</header>
+
+<!-- MAIN -->
+<main class="main" id="tabs-section">
+  
+
+  <!-- TAB 1: Questionnaire -->
+  <section class="tab-content active" id="tab-questionnaire">
+    <div class="section-header">
+      <h2 data-i18n="quiz_title">Skin Type Questionnaire</h2>
+      <p data-i18n="quiz_sub">Answer all 8 questions honestly for the most accurate result.</p>
+    </div>
+    <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <p class="progress-label" id="progress-label">0 / 8 answered</p>
+
+    <form id="quiz-form">
+      <div class="questions-grid">
+        <div class="question-card" data-q="0">
+          <div class="q-number">01</div>
+          <h3 data-i18n="q1">How does your skin feel ~1 hour after washing with no products?</h3>
+          <div class="options">
+            <label class="option"><input type="radio" name="q0" value="Very tight and uncomfortable"/><span data-i18n="q1a1">Very tight and uncomfortable</span></label>
+            <label class="option"><input type="radio" name="q0" value="Slightly tight"/><span data-i18n="q1a2">Slightly tight</span></label>
+            <label class="option"><input type="radio" name="q0" value="Comfortable and balanced"/><span data-i18n="q1a3">Comfortable and balanced</span></label>
+            <label class="option"><input type="radio" name="q0" value="Fine, no particular feeling"/><span data-i18n="q1a4">Fine, no particular feeling</span></label>
+          </div>
+        </div>
+        <div class="question-card" data-q="1">
+          <div class="q-number">02</div>
+          <h3 data-i18n="q2">By midday, how does your skin look?</h3>
+          <div class="options">
+            <label class="option"><input type="radio" name="q1" value="Very shiny all over"/><span data-i18n="q2a1">Very shiny all over</span></label>
+            <label class="option"><input type="radio" name="q1" value="Shiny only on T-zone"/><span data-i18n="q2a2">Shiny only on T-zone (forehead/nose/chin)</span></label>
+            <label class="option"><input type="radio" name="q1" value="Same as morning"/><span data-i18n="q2a3">Same as morning</span></label>
+            <label class="option"><input type="radio" name="q1" value="Feels drier and tighter"/><span data-i18n="q2a4">Feels drier and tighter</span></label>
+          </div>
+        </div>
+        <div class="question-card" data-q="2">
+          <div class="q-number">03</div>
+          <h3 data-i18n="q3">How often do you experience breakouts or pimples?</h3>
+          <div class="options">
+            <label class="option"><input type="radio" name="q2" value="Frequently, all over face"/><span data-i18n="q3a1">Frequently, all over face</span></label>
+            <label class="option"><input type="radio" name="q2" value="Occasionally, mainly T-zone"/><span data-i18n="q3a2">Occasionally, mainly T-zone</span></label>
+            <label class="option"><input type="radio" name="q2" value="Rarely"/><span data-i18n="q3a3">Rarely</span></label>
+            <label class="option"><input type="radio" name="q2" value="Almost never, but skin is flaky"/><span data-i18n="q3a4">Almost never, but skin is flaky</span></label>
+          </div>
+        </div>
+        <div class="question-card" data-q="3">
+          <div class="q-number">04</div>
+          <h3 data-i18n="q4">How does your skin feel without moisturizer for a few hours?</h3>
+          <div class="options">
+            <label class="option"><input type="radio" name="q3" value="Very dry, flaky or itchy"/><span data-i18n="q4a1">Very dry, flaky or itchy</span></label>
+            <label class="option"><input type="radio" name="q3" value="Slightly dry in some areas"/><span data-i18n="q4a2">Slightly dry in some areas</span></label>
+            <label class="option"><input type="radio" name="q3" value="Normal, no issues"/><span data-i18n="q4a3">Normal, no issues</span></label>
+            <label class="option"><input type="radio" name="q3" value="Gets oily quickly"/><span data-i18n="q4a4">Gets oily quickly</span></label>
+          </div>
+        </div>
+        <div class="question-card" data-q="4">
+          <div class="q-number">05</div>
+          <h3 data-i18n="q5">How do your pores look when you look closely in the mirror?</h3>
+          <div class="options">
+            <label class="option"><input type="radio" name="q4" value="Large and visible especially on nose"/><span data-i18n="q5a1">Large and visible, especially on nose</span></label>
+            <label class="option"><input type="radio" name="q4" value="Visible only on T-zone"/><span data-i18n="q5a2">Visible only on T-zone</span></label>
+            <label class="option"><input type="radio" name="q4" value="Small and barely visible"/><span data-i18n="q5a3">Small and barely visible</span></label>
+            <label class="option"><input type="radio" name="q4" value="Very small, skin looks tight"/><span data-i18n="q5a4">Very small, skin looks tight</span></label>
+          </div>
+        </div>
+        <div class="question-card" data-q="5">
+          <div class="q-number">06</div>
+          <h3 data-i18n="q6">How does your skin react to new skincare products?</h3>
+          <div class="options">
+            <label class="option"><input type="radio" name="q5" value="Often irritated or red"/><span data-i18n="q6a1">Often gets irritated or red</span></label>
+            <label class="option"><input type="radio" name="q5" value="Sometimes breaks out"/><span data-i18n="q6a2">Sometimes breaks out</span></label>
+            <label class="option"><input type="radio" name="q5" value="Rarely reacts"/><span data-i18n="q6a3">Rarely reacts</span></label>
+            <label class="option"><input type="radio" name="q5" value="Absorbs quickly, needs more"/><span data-i18n="q6a4">Absorbs quickly, always needs more</span></label>
+          </div>
+        </div>
+        <div class="question-card" data-q="6">
+          <div class="q-number">07</div>
+          <h3 data-i18n="q7">What best describes your overall skin texture?</h3>
+          <div class="options">
+            <label class="option"><input type="radio" name="q6" value="Rough, flaky or tight"/><span data-i18n="q7a1">Rough, flaky or tight</span></label>
+            <label class="option"><input type="radio" name="q6" value="Smooth some areas, oily others"/><span data-i18n="q7a2">Smooth in some areas, oily in others</span></label>
+            <label class="option"><input type="radio" name="q6" value="Smooth and balanced overall"/><span data-i18n="q7a3">Smooth and balanced overall</span></label>
+            <label class="option"><input type="radio" name="q6" value="Consistently shiny and greasy"/><span data-i18n="q7a4">Consistently shiny and greasy</span></label>
+          </div>
+        </div>
+        <div class="question-card" data-q="7">
+          <div class="q-number">08</div>
+          <h3 data-i18n="q8">Press a clean tissue on your face — what happens?</h3>
+          <div class="options">
+            <label class="option"><input type="radio" name="q7" value="Lots of oil all over"/><span data-i18n="q8a1">Lots of oil all over</span></label>
+            <label class="option"><input type="radio" name="q7" value="Oil mainly from T-zone"/><span data-i18n="q8a2">Oil mainly from T-zone</span></label>
+            <label class="option"><input type="radio" name="q7" value="Very little oil"/><span data-i18n="q8a3">Very little oil</span></label>
+            <label class="option"><input type="radio" name="q7" value="Almost nothing, skin is dry"/><span data-i18n="q8a4">Almost nothing, skin is dry</span></label>
+          </div>
+        </div>
+      </div>
+      <div class="submit-wrap">
+        <button type="submit" class="btn-primary" id="quiz-submit" disabled data-i18n="btn_analyze">Analyze My Skin Type →</button>
+        <p class="submit-note" id="submit-note">Answer all 8 questions to continue</p>
+      </div>
+    </form>
+    <div class="result-section hidden" id="quiz-result"></div>
+  </section>
+
+  <!-- TAB 2: Image Analysis -->
+  <section class="tab-content" id="tab-image">
+    <div class="section-header">
+      <h2>Image</h2>
+      <p data-i18n="upload_sub">Upload a clear face photo for skin type detection and condition analysis.</p>
+    </div>
+    <div class="upload-area" id="upload-area">
+      <div class="upload-icon">◈</div>
+      <h3 data-i18n="upload_title">Drop your photo here</h3>
+      <p data-i18n="upload_sub">or click to browse</p>
+      <p class="upload-hint" data-i18n="upload_hint">JPG, PNG · Clear lighting · Face forward · No heavy makeup</p>
+      <input type="file" id="img-input" accept="image/jpeg,image/png" hidden/>
+    </div>
+    <div class="img-preview hidden" id="img-preview">
+      <img id="preview-img" src="" alt="Preview"/>
+      <button class="btn-outline" id="change-img">Change Photo</button>
+    </div>
+    <div class="submit-wrap">
+      <button class="btn-primary" id="img-submit" disabled data-i18n="btn_analyze_img">Analyze Image →</button>
+    </div>
+    <div class="result-section hidden" id="img-result"></div>
+  </section>
+
+  <!-- TAB 3: Compare -->
+  <section class="tab-content" id="tab-compare">
+    <div class="section-header">
+      <h2 data-i18n="tab_compare">Compare</h2>
+      <p>Side-by-side comparison of both analysis methods.</p>
+    </div>
+    <div id="compare-content">
+      <div class="compare-placeholder">
+        <div class="placeholder-icon">◈</div>
+        <h3>Complete both analyses first</h3>
+        <p>Use the Questionnaire and Image Analysis tabs, then come back here.</p>
+        <div class="placeholder-steps">
+          <div class="placeholder-step" id="step-q">① Questionnaire <span class="step-status">Pending</span></div>
+          <div class="placeholder-step" id="step-i">② Image Analysis <span class="step-status">Pending</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 4: History -->
+  <section class="tab-content" id="tab-history">
+    <div class="section-header">
+      <h2 data-i18n="history_title">My Skin History</h2>
+      <p data-i18n="history_sub">Track how your skin type changes over time.</p>
+    </div>
+    <div id="history-content">
+      <div class="history-empty" id="history-empty">
+        <div class="placeholder-icon">◈</div>
+        <p data-i18n="no_history">No results saved yet. Complete an analysis to start tracking.</p>
+      </div>
+      <div id="history-list"></div>
+    </div>
+  </section>
+
+</main>
+
+  <!-- TAB 5: SUS Survey -->
+  <section class="tab-content" id="tab-sus">
+    <div class="section-header">
+      <h2 data-i18n="sus_title">System Usability Scale (SUS)</h2>
+      <p data-i18n="sus_sub">Help improve DermaScan — answer 10 quick questions about your experience</p>
+      <p style="font-size:0.78rem;margin-top:0.3rem;opacity:0.7">Based on Brooke (1996) — the industry-standard usability evaluation method</p>
+    </div>
+
+    <div id="sus-form-wrap">
+      <div class="sus-instructions">
+        <p data-i18n="sus_instruction">For each statement, select how much you <strong>agree or disagree</strong> on a scale of 1 to 5.</p>
+        <div class="sus-scale-legend">
+          <span data-i18n="sus_scale_1">1 = Strongly Disagree</span>
+          <span data-i18n="sus_scale_2">2 = Disagree</span>
+          <span data-i18n="sus_scale_3">3 = Neutral</span>
+          <span data-i18n="sus_scale_4">4 = Agree</span>
+          <span data-i18n="sus_scale_5">5 = Strongly Agree</span>
+        </div>
+      </div>
+
+      <form id="sus-form">
+        <div class="sus-questions">
+
+          <div class="sus-card" data-q="0">
+            <div class="sus-q-num">Q1</div>
+            <div class="sus-q-text" data-i18n="sus_q1">I think that I would like to use this system frequently.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq0" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq0" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq0" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq0" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq0" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="1" style="border-left:3px solid #fb923c">
+            <div class="sus-q-num">Q2</div>
+            <div class="sus-q-text" data-i18n="sus_q2">I found the system unnecessarily complex.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq1" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq1" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq1" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq1" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq1" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="2">
+            <div class="sus-q-num">Q3</div>
+            <div class="sus-q-text" data-i18n="sus_q3">I thought the system was easy to use.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq2" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq2" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq2" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq2" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq2" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="3" style="border-left:3px solid #fb923c">
+            <div class="sus-q-num">Q4</div>
+            <div class="sus-q-text" data-i18n="sus_q4">I think that I would need the support of a technical person to use this system.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq3" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq3" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq3" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq3" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq3" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="4">
+            <div class="sus-q-num">Q5</div>
+            <div class="sus-q-text" data-i18n="sus_q5">I found the various functions in this system were well integrated.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq4" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq4" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq4" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq4" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq4" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="5" style="border-left:3px solid #fb923c">
+            <div class="sus-q-num">Q6</div>
+            <div class="sus-q-text" data-i18n="sus_q6">I thought there was too much inconsistency in this system.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq5" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq5" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq5" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq5" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq5" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="6">
+            <div class="sus-q-num">Q7</div>
+            <div class="sus-q-text" data-i18n="sus_q7">I would imagine that most people would learn to use this system very quickly.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq6" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq6" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq6" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq6" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq6" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="7" style="border-left:3px solid #fb923c">
+            <div class="sus-q-num">Q8</div>
+            <div class="sus-q-text" data-i18n="sus_q8">I found the system very cumbersome to use.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq7" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq7" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq7" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq7" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq7" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="8">
+            <div class="sus-q-num">Q9</div>
+            <div class="sus-q-text" data-i18n="sus_q9">I felt very confident using the system.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq8" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq8" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq8" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq8" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq8" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+          <div class="sus-card" data-q="9" style="border-left:3px solid #fb923c">
+            <div class="sus-q-num">Q10</div>
+            <div class="sus-q-text" data-i18n="sus_q10">I needed to learn a lot of things before I could get going with this system.</div>
+            <div class="sus-options">
+              <label class="sus-opt"><input type="radio" name="sq9" value="1"/><span>1</span></label>
+              <label class="sus-opt"><input type="radio" name="sq9" value="2"/><span>2</span></label>
+              <label class="sus-opt"><input type="radio" name="sq9" value="3"/><span>3</span></label>
+              <label class="sus-opt"><input type="radio" name="sq9" value="4"/><span>4</span></label>
+              <label class="sus-opt"><input type="radio" name="sq9" value="5"/><span>5</span></label>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="submit-wrap">
+          <button type="submit" class="btn-primary" id="sus-submit" disabled data-i18n="sus_submit">Calculate My SUS Score →</button>
+          <p class="submit-note" id="sus-note">Answer all 10 questions to calculate your score</p>
+        </div>
+      </form>
+
+      <div class="result-section hidden" id="sus-result"></div>
+    </div>
+  </section>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">🌿 DermaScan</div>
+    <p>Senior Research Project · Skin Type Recognition System</p>
+    <p class="footer-note">For educational purposes only. Consult a licensed dermatologist for medical advice.</p>
+  </div>
+</footer>
+
+<script src="/static/js/main.js"></script>
+</body>
+</html>
