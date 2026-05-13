@@ -389,19 +389,51 @@ function renderResult(containerId, data, method, features=null, condData=null) {
 
 // ── PDF Export ─────────────────────────────────────────────────────────
 async function exportPDF(skinType, method, confidence) {
-  const data = skinType === state.qResult?.skin_type ? state.qResult : state.imgResult;
-  if (!data) return;
+  // Find the correct data object
+  let data = null;
+  if (state.qResult && state.qResult.skin_type === skinType) data = state.qResult;
+  else if (state.imgResult && state.imgResult.skin_type === skinType) data = state.imgResult;
+  else data = state.qResult || state.imgResult;
+  if (!data) { alert('No result data found. Please complete an analysis first.'); return; }
+
   try {
-    const res  = await fetch('/api/export-pdf', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ skin_type:skinType, method, confidence, percentages:data.percentages, lang:state.lang })
+    const res = await fetch('/api/export-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skin_type:   skinType,
+        method:      method,
+        confidence:  confidence,
+        percentages: data.percentages,
+        lang:        state.lang
+      })
     });
-    const html = await res.text();
-    const win  = window.open('', '_blank');
-    win.document.write(html);
-    win.document.close();
-    setTimeout(() => win.print(), 800);
-  } catch(e) { alert('PDF export failed. Please try again.'); }
+
+    if (!res.ok) { alert('PDF export failed. Please try again.'); return; }
+
+    // Get HTML content and create a downloadable blob
+    const htmlContent = await res.text();
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+
+    // Create a hidden link and click it to download
+    const a = document.createElement('a');
+    a.href     = url;
+    a.download = 'DermaScan_Report_' + skinType + '.html';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+
+    // Cleanup
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }, 1000);
+
+  } catch(e) {
+    console.error('PDF error:', e);
+    alert('PDF export failed: ' + e.message);
+  }
 }
 
 // ── Save Result ────────────────────────────────────────────────────────
