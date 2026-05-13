@@ -891,7 +891,10 @@ def export_pdf():
   <div class="footer">DermaScan | For educational purposes only | Consult a licensed dermatologist for medical advice</div>
 </div></body></html>"""
 
-    return html_content, 200, {'Content-Type':'text/html; charset=utf-8'}
+    return html_content, 200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': f'attachment; filename=DermaScan_{skin_type}_Report.html'
+    }
 
 # ── Translations ───────────────────────────────────────────────────────
 TRANSLATIONS = {
